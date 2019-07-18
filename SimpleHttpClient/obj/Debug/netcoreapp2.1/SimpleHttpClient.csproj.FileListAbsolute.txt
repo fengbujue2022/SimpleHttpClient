@@ -1,0 +1,9 @@
+C:\Users\frankdeng\source\repos\SimpleHttpClient\SimpleHttpClient\bin\Debug\netcoreapp2.1\SimpleHttpClient.deps.json
+C:\Users\frankdeng\source\repos\SimpleHttpClient\SimpleHttpClient\bin\Debug\netcoreapp2.1\SimpleHttpClient.dll
+C:\Users\frankdeng\source\repos\SimpleHttpClient\SimpleHttpClient\bin\Debug\netcoreapp2.1\SimpleHttpClient.pdb
+C:\Users\frankdeng\source\repos\SimpleHttpClient\SimpleHttpClient\obj\Debug\netcoreapp2.1\SimpleHttpClient.csproj.CoreCompileInputs.cache
+C:\Users\frankdeng\source\repos\SimpleHttpClient\SimpleHttpClient\obj\Debug\netcoreapp2.1\SimpleHttpClient.AssemblyInfoInputs.cache
+C:\Users\frankdeng\source\repos\SimpleHttpClient\SimpleHttpClient\obj\Debug\netcoreapp2.1\SimpleHttpClient.AssemblyInfo.cs
+C:\Users\frankdeng\source\repos\SimpleHttpClient\SimpleHttpClient\obj\Debug\netcoreapp2.1\SimpleHttpClient.dll
+C:\Users\frankdeng\source\repos\SimpleHttpClient\SimpleHttpClient\obj\Debug\netcoreapp2.1\SimpleHttpClient.pdb
+C:\Users\frankdeng\source\repos\SimpleHttpClient\SimpleHttpClient\obj\Debug\netcoreapp2.1\SimpleHttpClient.csprojAssemblyReference.cache
