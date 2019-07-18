@@ -9,58 +9,82 @@ using System.Threading.Tasks;
 
 namespace SimpleHttpClient
 {
-    public class HttpClient
+    public class HttpClient : HttpMessageInvoker
     {
-        public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        private CancellationTokenSource _pendingRequestsCts;
+        private volatile bool _disposed;
+
+        public TimeSpan TimeOut { get; set; } = TimeSpan.FromMilliseconds(100);
+
+        public HttpClient()
+            : this(new HttpClientHandler())
         {
-            var saea = new SocketAsyncEventArgs();
+        }
 
-            var taskBuilder = new AsyncTaskMethodBuilder();
-            _ = taskBuilder.Task;
+        public HttpClient(HttpMessageHandler handler) :
+            this(handler, true)
+        {
+        }
 
-            saea.Completed += (s, args) =>
+        public HttpClient(HttpMessageHandler handler, bool disposeHandler) : base(handler, disposeHandler)
+        {
+            _pendingRequestsCts = new CancellationTokenSource();
+        }
+
+
+        public  Task<HttpResponseMessage> SendAsync(HttpRequestMessage request)
+        {
+            return SendAsync(request, CancellationToken.None);
+        }
+
+        public override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            CancellationTokenSource cts;
+
+            bool disposeCts;
+            if (cancellationToken.CanBeCanceled)
             {
-                switch (args.SocketError)
-                {
-                    case SocketError.Success:
-                        taskBuilder.SetResult();
-                        break;
-                    case SocketError.OperationAborted:
-                    case SocketError.ConnectionAborted:
-                        if (cancellationToken.IsCancellationRequested)
-                        {
-                            taskBuilder.SetException(new OperationCanceledException("JOJO 我不做人啦！"));
-                            break;
-                        }
-                        goto default;
-                    default:
-                        taskBuilder.SetException(new SocketException((int)args.SocketError));
-                        break;
-                }
-            };
-
-            saea.RemoteEndPoint = new DnsEndPoint(request.RequestUri.IdnHost, request.RequestUri.Port);
-
-            if (Socket.ConnectAsync(SocketType.Stream, ProtocolType.Tcp, saea))
+                disposeCts = true;
+                cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _pendingRequestsCts.Token);
+                cts.CancelAfter(TimeOut);
+            }
+            else
             {
-                using (cancellationToken.Register((s) => Socket.CancelConnectAsync((SocketAsyncEventArgs)s), saea))
-                {
-                    //waiting for Completed event emit
-                    await taskBuilder.Task.ConfigureAwait(false);
-                }
+                disposeCts = false;
+                cts = _pendingRequestsCts;
             }
 
-            var socket = saea.ConnectSocket;
-            var stream = new NetworkStream(socket);
-
-            //TODO: raw request parser
-
-            //await stream.WriteAsync();
-            //await  stream.ReadAsync();
-
-            //TODO: raw response resolver
-
-            return null;
+            return FinishSendAsync(base.SendAsync(request, cts.Token), request, cts, disposeCts);
         }
+
+        private async Task<HttpResponseMessage> FinishSendAsync(Task<HttpResponseMessage> sendTask, HttpRequestMessage request, CancellationTokenSource cts, bool disposeCts)
+        {
+            HttpResponseMessage response = null;
+            try
+            {
+                response = await sendTask.ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                response?.Dispose();
+                throw;
+            }
+
+            return response;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && !_disposed)
+            {
+                _disposed = true;
+
+                _pendingRequestsCts.Cancel();
+                _pendingRequestsCts.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
     }
 }
