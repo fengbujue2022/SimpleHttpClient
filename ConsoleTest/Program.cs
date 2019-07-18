@@ -13,7 +13,7 @@ namespace ConsoleTest
             {
                 var client = new SimpleHttpClient.HttpClient();
 
-                var request = new HttpRequestMessage(HttpMethod.Get, "http://staging-ap-api.openrice.com.cn");
+                var request = new HttpRequestMessage(HttpMethod.Get, "");
 
                 var res = await client.SendAsync(request);
             }
