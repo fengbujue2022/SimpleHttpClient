@@ -2,10 +2,12 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace SimpleHttpClient
 {
@@ -15,7 +17,7 @@ namespace SimpleHttpClient
         private const int InitialWriteBufferSize = InitialReadBufferSize;
         private static readonly byte[] s_spaceHttp11NewlineAsciiBytes = Encoding.ASCII.GetBytes(" HTTP/1.1\r\n");
 
-        private readonly Socket _socket; 
+        private readonly Socket _socket;
         private readonly Stream _stream;
 
         private readonly byte[] _writeBuffer;
@@ -49,11 +51,19 @@ namespace SimpleHttpClient
             //protocol
             await WriteBytesAsync(s_spaceHttp11NewlineAsciiBytes).ConfigureAwait(false);
 
-            await _stream.WriteAsync(new Memory<byte>(_writeBuffer));
+            //header
+            await WriteStringAsync($"Host:{request.RequestUri.IdnHost}\r\n").ConfigureAwait(false);
+            await WriteHeaderAsync(request.Headers);
+            //write line feed for body
+            await WriteStringAsync("\r\n").ConfigureAwait(false);
+
+            Console.WriteLine("raw request:");
+            Console.WriteLine(Encoding.UTF8.GetString(_writeBuffer, 0, _writeOffset));
+            await FlushAsync().ConfigureAwait(false);
+
 
             await _stream.ReadAsync(new Memory<byte>(_readBuffer));
-
-            Console.WriteLine("这就是我最后的波纹了 JOJO");
+            Console.WriteLine("raw response:");
             Console.WriteLine(Encoding.UTF8.GetString(_readBuffer));
 
             return null;
@@ -61,7 +71,7 @@ namespace SimpleHttpClient
 
         private Task WriteStringAsync(string s)
         {
-            int offset = _writeOffset;  
+            int offset = _writeOffset;
             if (s.Length <= _writeBuffer.Length)
             {
                 byte[] writeBuffer = _writeBuffer;
@@ -76,6 +86,23 @@ namespace SimpleHttpClient
                 _writeOffset = offset;
                 return Task.CompletedTask;
             }
+            return WriteStringAsyncSlow(s);
+        }
+
+        private Task WriteAsciiStringAsync(string s)
+        {
+            int offset = _writeOffset;
+            if (s.Length <= _writeBuffer.Length - offset)
+            {
+                byte[] writeBuffer = _writeBuffer;
+                foreach (char c in s)
+                {
+                    writeBuffer[offset++] = (byte)c;
+                }
+                _writeOffset = offset;
+                return Task.CompletedTask;
+            }
+
             return WriteStringAsyncSlow(s);
         }
 
@@ -113,6 +140,24 @@ namespace SimpleHttpClient
             return WriteBytesSlowAsync(bytes);
         }
 
+        private Task WriteTwoBytesAsync(byte b1, byte b2)
+        {
+            if (_writeOffset <= _writeBuffer.Length - 2)
+            {
+                byte[] buffer = _writeBuffer;
+                buffer[_writeOffset++] = b1;
+                buffer[_writeOffset++] = b2;
+                return Task.CompletedTask;
+            }
+            return WriteTwoBytesSlowAsync(b1, b2);
+        }
+
+        private async Task WriteTwoBytesSlowAsync(byte b1, byte b2)
+        {
+            await WriteByteAsync(b1).ConfigureAwait(false);
+            await WriteByteAsync(b2).ConfigureAwait(false);
+        }
+
         private async Task WriteBytesSlowAsync(byte[] bytes)
         {
             int offset = 0;
@@ -123,7 +168,7 @@ namespace SimpleHttpClient
                 Buffer.BlockCopy(bytes, offset, _writeBuffer, _writeOffset, toCopy);
                 _writeOffset += toCopy;
                 offset += toCopy;
-              
+
                 if (offset == bytes.Length)
                 {
                     break;
@@ -149,13 +194,40 @@ namespace SimpleHttpClient
             return _stream.WriteAsync(source);
         }
 
+        private async Task WriteHeaderAsync(HttpHeaders headers)
+        {
+            foreach (var header in headers)
+            {
+                await WriteAsciiStringAsync(header.Key).ConfigureAwait(false);
+                await WriteTwoBytesAsync((byte)':', (byte)' ').ConfigureAwait(false);
+                foreach (var value in header.Value)
+                {
+                    await WriteStringAsync(value).ConfigureAwait(false);
+                    if (header.Value.Count() > 0)
+                    {
+                        await WriteTwoBytesAsync((byte)';', (byte)' ').ConfigureAwait(false);
+                    }
+                }
+                await WriteStringAsync("\r\n").ConfigureAwait(false);
+            }
+        }
+
+        private ValueTask FlushAsync()
+        {
+            if (_writeOffset > 0)
+            {
+                ValueTask t = WriteToStreamAsync(new ReadOnlyMemory<byte>(_writeBuffer, 0, _writeOffset));
+                _writeOffset = 0;
+                return t;
+            }
+            return default(ValueTask);
+        }
 
 
         protected virtual void Dispose(bool disposing)
         {
             if (!disposed && disposing)
             {
-
                 disposed = true;
             }
         }
