@@ -16,37 +16,115 @@ using System.Security.Authentication;
 
 namespace SimpleHttpClient
 {
-    internal class HttpConnectionPool
+    internal class HttpConnectionPool : IDisposable
     {
         private readonly List<CachedConnection> _idleConnections = new List<CachedConnection>();
+        private Queue<TaskCompletionSourceWithCancellation<HttpConnection>> _waiters;
+
+        private bool _disposed;
+        private int _associatedConnectionCount;
+        private int _maxConnections = 3;
+
+        private object SyncObj => _idleConnections;
 
         public HttpConnectionPool()
         {
-         
+
         }
 
 
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var isHttps = request.RequestUri.Scheme.ToLower().Equals("https");
-           var (connection, isNewConnection, failureResponse) = await GetConnectionAsync(isHttps?HttpConnectionKind.Https: HttpConnectionKind.Http, request, cancellationToken);
+            var (connection, isNewConnection, failureResponse) = await GetConnectionAsync(isHttps ? HttpConnectionKind.Https : HttpConnectionKind.Http, request, cancellationToken);
+            var res= await connection.SendAsync(request, cancellationToken);
+            Console.WriteLine("_associatedConnectionCount============= " + _associatedConnectionCount);
+            return res;
+        }
 
-            return await connection.SendAsync(request, cancellationToken); 
+        public void ReturnConnection(HttpConnection connection)
+        {
+            lock (SyncObj)
+            {
+                if (HasWaiter())
+                {
+                    if (TransferConnection(connection))//set connection result for wait task
+                    {
+                        return;
+                    }
+                }
+
+                var list = _idleConnections;
+                if (!_disposed)
+                    list.Add(new CachedConnection(connection));
+            }
+        }
+
+        public bool TransferConnection(HttpConnection connection)
+        {
+            TaskCompletionSource<HttpConnection> waiter = DequeueWaiter();
+            if (waiter.TrySetResult(connection))
+            {
+                return true;
+            }
+            return false;
         }
 
         private async ValueTask<(HttpConnection connection, bool isNewConnection, HttpResponseMessage failureResponse)>
-            GetConnectionAsync(HttpConnectionKind kind,HttpRequestMessage request, CancellationToken cancellationToken)
+            GetConnectionAsync(HttpConnectionKind kind, HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            //that's so complex,let me look some time
-            if (false)
+            var connection = await GetOrReserveHttpConnectionAsync(cancellationToken);
+            if (connection != null)
             {
-                var connection = await GetOrReserveHttpConnectionAsync(cancellationToken);
-                if (connection != null)
+                return (connection, false, null);
+            }
+
+            var (sokect, stream, failureResponse) = await ConnectAsync(kind, request, cancellationToken);
+
+            connection = ConstructHttpConnection(sokect, stream);
+
+            return (connection, true, null);
+        }
+
+        private ValueTask<HttpConnection> GetOrReserveHttpConnectionAsync(CancellationToken cancellationToken)
+        {
+            CachedConnection cachedConnection = null;
+            TaskCompletionSourceWithCancellation<HttpConnection> waiter = default(TaskCompletionSourceWithCancellation<HttpConnection>);
+            lock (SyncObj)
+            {
+                var list = _idleConnections;
+                if (list.Count > 0)
                 {
-                    return (connection, false, null);
+                    cachedConnection = list[list.Count - 1];
+                    list.RemoveAt(list.Count - 1);
+                }
+                else
+                {
+                    if (_associatedConnectionCount < _maxConnections)
+                    {
+                        IncrementConnectionCountNoLock();
+                        return new ValueTask<HttpConnection>((HttpConnection)null);
+                    }
+                    else
+                    {
+                        waiter = EnqueueWaiter(cancellationToken);
+                    }
                 }
             }
 
+            if (cachedConnection != null)
+            {
+                return new ValueTask<HttpConnection>(cachedConnection._connection);
+            }
+            else
+            {
+                //wait for connection return to pool
+                return new ValueTask<HttpConnection>(waiter.WaitWithCancellationAsync(cancellationToken));
+            }
+        }
+
+        private async ValueTask<(Socket, Stream, HttpResponseMessage)> ConnectAsync(HttpConnectionKind kind, HttpRequestMessage request, CancellationToken cancellationToken)
+        {
             var (sokect, stream, failureResponse) = await ConnectAsync(request, cancellationToken);
             if (kind == HttpConnectionKind.Https || kind == HttpConnectionKind.SslProxyTunnel)
             {
@@ -57,14 +135,7 @@ namespace SimpleHttpClient
                 stream = sslStream;
             }
 
-            return (ConstructHttpConnection(sokect, stream), true, null);
-        }
-
-        private async ValueTask<HttpConnection> GetOrReserveHttpConnectionAsync(CancellationToken cancellationToken)
-        {
-            var conn = _idleConnections.FirstOrDefault()._connection;
-
-            return conn;
+            return (sokect, stream, failureResponse);
         }
 
         private async ValueTask<(Socket, Stream, HttpResponseMessage)> ConnectAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -72,49 +143,46 @@ namespace SimpleHttpClient
             //TODO: this object need pooling
             var saea = new SocketAsyncEventArgs();
 
-    
-                var taskBuilder = new AsyncTaskMethodBuilder();
-                _ = taskBuilder.Task;
+            var taskBuilder = new AsyncTaskMethodBuilder();
+            _ = taskBuilder.Task;
 
-                saea.Completed += (s, args) =>
+            saea.Completed += (s, args) =>
+            {
+                switch (args.SocketError)
                 {
-                    switch (args.SocketError)
-                    {
-                        case SocketError.Success:
-                            taskBuilder.SetResult();
+                    case SocketError.Success:
+                        taskBuilder.SetResult();
+                        break;
+                    case SocketError.OperationAborted:
+                    case SocketError.ConnectionAborted:
+                        if (cancellationToken.CanBeCanceled)
+                        {
+                            taskBuilder.SetException(new OperationCanceledException("JOJO 我不做人啦！"));
                             break;
-                        case SocketError.OperationAborted:
-                        case SocketError.ConnectionAborted:
-                            if (cancellationToken.IsCancellationRequested)
-                            {
-                                taskBuilder.SetException(new OperationCanceledException("JOJO 我不做人啦！"));
-                                break;
-                            }
-                            goto default;
-                        default:
-                            taskBuilder.SetException(new SocketException((int)args.SocketError));
-                            break;
-                    }
-                };
-
-                saea.RemoteEndPoint = new DnsEndPoint(request.RequestUri.IdnHost, request.RequestUri.Port);
-
-                if (Socket.ConnectAsync(SocketType.Stream, ProtocolType.Tcp, saea))
-                {
-                    using (cancellationToken.Register((s) => Socket.CancelConnectAsync((SocketAsyncEventArgs)s), saea))
-                    {
-                        //waiting for Completed event emit
-                        await taskBuilder.Task.ConfigureAwait(false);
-                    }
+                        }
+                        goto default;
+                    default:
+                        taskBuilder.SetException(new SocketException((int)args.SocketError));
+                        break;
                 }
+            };
 
-                var socket = saea.ConnectSocket;
-                var stream = new NetworkStream(socket);
+            saea.RemoteEndPoint = new DnsEndPoint(request.RequestUri.IdnHost, request.RequestUri.Port);
 
-                return (socket, stream, null);
+            if (Socket.ConnectAsync(SocketType.Stream, ProtocolType.Tcp, saea))
+            {
+                using (cancellationToken.Register((s) => Socket.CancelConnectAsync((SocketAsyncEventArgs)s), saea))
+                {
+                    //waiting for Completed event emit
+                    await taskBuilder.Task.ConfigureAwait(false);
+                }
+            }
+
+            var socket = saea.ConnectSocket;
+            var stream = new NetworkStream(socket);
+
+            return (socket, stream, null);
         }
-
-
 
 
         private static ValueTask<SslStream> EstablishSslConnectionAsync(SslClientAuthenticationOptions sslOptions, HttpRequestMessage request, Stream stream, CancellationToken cancellationToken)
@@ -170,11 +238,71 @@ namespace SimpleHttpClient
         {
             return new HttpConnection(this, socket, stream);
         }
+
+        public void IncrementConnectionCount()
+        {
+            lock (SyncObj)
+            {
+                IncrementConnectionCountNoLock();
+            }
+        }
+
+        public void IncrementConnectionCountNoLock()
+        {
+            _associatedConnectionCount++;
+        }
+
+        public void DecrementConnectionCount()
+        {
+            lock (SyncObj)
+            {
+                _associatedConnectionCount--;
+            }
+        }
+
+        private bool HasWaiter()
+        {
+            return (_waiters != null && _waiters.Count > 0);
+        }
+
+        private TaskCompletionSourceWithCancellation<HttpConnection> EnqueueWaiter(CancellationToken cancellationToken)
+        {
+            if (_waiters == null)
+            {
+                _waiters = new Queue<TaskCompletionSourceWithCancellation<HttpConnection>>();
+            }
+
+            var waiter = new TaskCompletionSourceWithCancellation<HttpConnection>();
+            _waiters.Enqueue(waiter);
+            return waiter;
+        }
+
+        private TaskCompletionSourceWithCancellation<HttpConnection> DequeueWaiter()
+        {
+            return _waiters.Dequeue();
+        }
+
+
+
+        public void Dispose()
+        {
+            List<CachedConnection> list = _idleConnections;
+            lock (SyncObj)
+            {
+                if (!_disposed)
+                {
+                    _disposed = true;
+                    list.ForEach(c => c._connection.Dispose());
+                    list.Clear();
+                }
+            }
+        }
     }
 
     internal sealed class CertificateCallbackMapper
     {
         public readonly Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> FromHttpClientHandler;
+
         public readonly RemoteCertificateValidationCallback ForSocketsHttpHandler;
 
         public CertificateCallbackMapper(Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> fromHttpClientHandler)
