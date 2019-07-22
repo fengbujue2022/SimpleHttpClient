@@ -16,15 +16,19 @@ namespace SimpleHttpClient
         private const int InitialReadBufferSize = 4096;
         private const int InitialWriteBufferSize = InitialReadBufferSize;
         private static readonly byte[] s_spaceHttp11NewlineAsciiBytes = Encoding.ASCII.GetBytes(" HTTP/1.1\r\n");
-
+        private static readonly byte[] s_contentLength0NewlineAsciiBytes = Encoding.ASCII.GetBytes("Content-Length: 0\r\n");
         private readonly Socket _socket;
         private readonly Stream _stream;
+        private readonly HttpConnectionPool _pool;
+
+        private bool _connectionClose;
 
         private readonly byte[] _writeBuffer;
         private int _writeOffset;
 
         private byte[] _readBuffer;
         private int _readOffset;
+        private int _readLength;
 
         private bool disposed;
 
@@ -33,6 +37,7 @@ namespace SimpleHttpClient
             Socket socket,
             Stream stream)
         {
+            _pool = pool;
             _socket = socket;
             _stream = stream;
             _writeBuffer = new byte[InitialWriteBufferSize];
@@ -50,23 +55,60 @@ namespace SimpleHttpClient
             await WriteStringAsync(request.RequestUri.PathAndQuery).ConfigureAwait(false);
             //protocol
             await WriteBytesAsync(s_spaceHttp11NewlineAsciiBytes).ConfigureAwait(false);
-
             //header
             await WriteStringAsync($"Host:{request.RequestUri.IdnHost}\r\n").ConfigureAwait(false);
             await WriteHeaderAsync(request.Headers);
-            //write line feed for body
-            await WriteStringAsync("\r\n").ConfigureAwait(false);
+
+            if (request.Content == null)
+            {
+                await WriteBytesAsync(s_contentLength0NewlineAsciiBytes).ConfigureAwait(false);
+            }
+            else
+            {
+                await WriteHeaderAsync(request.Content.Headers).ConfigureAwait(false);
+            }
+            //CRLF for header end
+            await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
 
             Console.WriteLine("raw request:");
             Console.WriteLine(Encoding.UTF8.GetString(_writeBuffer, 0, _writeOffset));
             await FlushAsync().ConfigureAwait(false);
 
-
             await _stream.ReadAsync(new Memory<byte>(_readBuffer));
+
             Console.WriteLine("raw response:");
             Console.WriteLine(Encoding.UTF8.GetString(_readBuffer));
 
+            CompleteResponse();
+
             return null;
+        }
+
+        public bool PollRead()
+        {
+            return _socket.Poll(0, SelectMode.SelectRead);
+        }
+
+        private void CompleteResponse()
+        {
+            if (_readLength != _readOffset)
+            {
+                _readOffset = _readLength = 0;
+                _connectionClose = true;
+            }
+            ReturnConnectionToPool();
+        }
+
+        private void ReturnConnectionToPool()
+        {
+            if (_connectionClose)
+            {
+                Dispose();
+            }
+            else
+            {
+                _pool.ReturnConnection(this);
+            }
         }
 
         private Task WriteStringAsync(string s)
@@ -203,7 +245,7 @@ namespace SimpleHttpClient
                 foreach (var value in header.Value)
                 {
                     await WriteStringAsync(value).ConfigureAwait(false);
-                    if (header.Value.Count() > 0)
+                    if (header.Value.Count() > 1)
                     {
                         await WriteTwoBytesAsync((byte)';', (byte)' ').ConfigureAwait(false);
                     }
@@ -224,18 +266,63 @@ namespace SimpleHttpClient
         }
 
 
-        protected virtual void Dispose(bool disposing)
+        private async Task ReadNextResponseHeader()
+        {
+            if (_readOffset == 0)
+                await FillAsync();
+
+            int lfIndex = Array.IndexOf(_readBuffer, (byte)'\n', _readLength);
+            if (lfIndex >= 0)
+            {
+                if (_readBuffer[lfIndex - 1] == (byte)'\r')
+                {
+
+                }
+            }
+        }
+
+        private async Task FillAsync()
+        {
+            int remaining = _readLength - _readOffset;
+
+            if (remaining == 0)
+            {
+                _readOffset = _readLength = 0;
+            }
+            else if (_readOffset > 0)
+            {
+                Buffer.BlockCopy(_readBuffer, _readOffset, _readBuffer, 0, remaining);
+                _readOffset = 0;
+                _readLength = remaining;
+            }
+            else if (remaining == _readBuffer.Length)
+            {
+                var newReadBuffer = new byte[_readBuffer.Length * 2];
+                Buffer.BlockCopy(_readBuffer, 0, newReadBuffer, 0, remaining);
+                _readBuffer = newReadBuffer;
+                _readOffset = 0;
+                _readLength = remaining;
+            }
+
+            int bytesRead = await _stream.ReadAsync(new Memory<byte>(_readBuffer, _readLength, _readBuffer.Length - _readLength)).ConfigureAwait(false);
+            if (bytesRead == 0)
+            {
+                throw new IOException("没得bytes可读了");
+            }
+
+            _readLength += bytesRead;
+        }
+
+        public void Dispose() => Dispose(true);
+
+        private void Dispose(bool disposing)
         {
             if (!disposed && disposing)
             {
                 disposed = true;
+                _pool.DecrementConnectionCount();
+                GC.SuppressFinalize(this);
             }
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
         }
 
     }
