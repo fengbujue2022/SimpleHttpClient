@@ -32,12 +32,12 @@ namespace SimpleHttpClient
 
         private object SyncObj => _idleConnections;
 
-        public HttpConnectionPool(HttpConnectionKind kind,string host,string sslHost,int port)
+        public HttpConnectionPool(HttpConnectionKind kind, string host, string sslHost, int port)
         {
             _kind = kind;
+            _host = host;
             _sslHost = sslHost;
             _port = port;
-            _host = host;
         }
 
 

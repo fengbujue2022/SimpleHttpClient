@@ -12,6 +12,7 @@ namespace SimpleHttpClient
     {
         private readonly ConcurrentDictionary<HttpConnectionKey, HttpConnectionPool> _pools;
 
+        private bool disposed;
         private object SyncObj => _pools;
 
         public HttpConnectionPoolManager()
@@ -21,7 +22,7 @@ namespace SimpleHttpClient
 
         public Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            var key = GetConnectionKey(request);
+            var key = (HttpConnectionKey)request;
             HttpConnectionPool pool;
             if (!_pools.TryGetValue(key, out pool))
             {
@@ -31,20 +32,16 @@ namespace SimpleHttpClient
             return pool.SendAsync(request, cancellationToken);
         }
 
-        private static HttpConnectionKey GetConnectionKey(HttpRequestMessage request)
-        {
-            var uri = request.RequestUri;
-            var isHttps = uri.Scheme.ToLower().Equals("https");
-            return new HttpConnectionKey(isHttps ? HttpConnectionKind.Https : HttpConnectionKind.Http, uri.IdnHost, uri.Port, uri.IdnHost); ;
-        }
 
-        private bool disposed = false;
 
         private void Dispose(bool disposing)
         {
             if (!disposed && disposing)
             {
-
+                foreach (var pool in _pools)
+                {
+                    pool.Value.Dispose();
+                }
                 disposed = true;
             }
         }

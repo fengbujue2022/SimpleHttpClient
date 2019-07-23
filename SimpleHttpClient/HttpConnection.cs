@@ -324,6 +324,7 @@ namespace SimpleHttpClient
             if (!disposed && disposing)
             {
                 disposed = true;
+                _stream.Dispose();
                 _pool.DecrementConnectionCount();
                 GC.SuppressFinalize(this);
             }

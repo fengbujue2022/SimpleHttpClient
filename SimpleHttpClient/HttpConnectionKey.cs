@@ -41,7 +41,7 @@ namespace SimpleHttpClient
                  &&
                  other.SslHostName == SslHostName;
         }
-        /*
+      
         public static implicit operator HttpConnectionKey(HttpRequestMessage httpRequest)
         {
             HttpConnectionKind kind;
@@ -56,6 +56,6 @@ namespace SimpleHttpClient
 
             return new HttpConnectionKey(kind, httpRequest.RequestUri.IdnHost, httpRequest.RequestUri.Port, httpRequest.RequestUri.IdnHost);
         }
-        */
+        
     }
 }
