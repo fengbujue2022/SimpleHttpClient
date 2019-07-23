@@ -21,8 +21,6 @@ namespace SimpleHttpClient
         private readonly Stream _stream;
         private readonly HttpConnectionPool _pool;
 
-        private Guid name;
-
         private bool _connectionClose;
 
         private readonly byte[] _writeBuffer;
@@ -44,12 +42,10 @@ namespace SimpleHttpClient
             _stream = stream;
             _writeBuffer = new byte[InitialWriteBufferSize];
             _readBuffer = new byte[InitialReadBufferSize];
-            name = Guid.NewGuid();
         }
 
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Console.WriteLine(name);
             //write raw request into stream(NetworkStream)
             //method
             await WriteStringAsync(request.Method.Method).ConfigureAwait(false);

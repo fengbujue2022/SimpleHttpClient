@@ -18,7 +18,7 @@ namespace SimpleHttpClient
 {
     internal class HttpConnectionPool : IDisposable
     {
-        private readonly List<CachedConnection> _idleConnections = new List<CachedConnection>();
+        private readonly List<CachedConnection> _idleConnections;
         private Queue<TaskCompletionSourceWithCancellation<HttpConnection>> _waiters;
 
         private readonly HttpConnectionKind _kind;
@@ -38,6 +38,7 @@ namespace SimpleHttpClient
             _host = host;
             _sslHost = sslHost;
             _port = port;
+            _idleConnections = new List<CachedConnection>();
         }
 
 
@@ -109,6 +110,7 @@ namespace SimpleHttpClient
                     if (_associatedConnectionCount < _maxConnections)
                     {
                         IncrementConnectionCountNoLock();
+                        Console.WriteLine("count"+ _associatedConnectionCount+"pool: "+ Guid);
                         return new ValueTask<HttpConnection>((HttpConnection)null);
                     }
                     else

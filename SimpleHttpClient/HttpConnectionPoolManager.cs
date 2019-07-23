@@ -24,10 +24,13 @@ namespace SimpleHttpClient
         {
             var key = (HttpConnectionKey)request;
             HttpConnectionPool pool;
-            if (!_pools.TryGetValue(key, out pool))
+            lock (SyncObj)
             {
-                pool = new HttpConnectionPool(key.Kind, key.Host, key.SslHostName, key.Port);
-                _pools.TryAdd(key, pool);
+                if (!_pools.TryGetValue(key, out pool))
+                {
+                    pool = new HttpConnectionPool(key.Kind, key.Host, key.SslHostName, key.Port);
+                    _pools.TryAdd(key, pool);
+                }
             }
             return pool.SendAsync(request, cancellationToken);
         }
