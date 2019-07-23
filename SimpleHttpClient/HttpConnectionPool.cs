@@ -110,7 +110,6 @@ namespace SimpleHttpClient
                     if (_associatedConnectionCount < _maxConnections)
                     {
                         IncrementConnectionCountNoLock();
-                        Console.WriteLine("count"+ _associatedConnectionCount+"pool: "+ Guid);
                         return new ValueTask<HttpConnection>((HttpConnection)null);
                     }
                     else
