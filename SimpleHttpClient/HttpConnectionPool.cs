@@ -21,24 +21,30 @@ namespace SimpleHttpClient
         private readonly List<CachedConnection> _idleConnections = new List<CachedConnection>();
         private Queue<TaskCompletionSourceWithCancellation<HttpConnection>> _waiters;
 
+        private readonly HttpConnectionKind _kind;
+        private readonly string _sslHost;
+        private readonly string _host;
+        private readonly int _port;
+
         private bool _disposed;
         private int _associatedConnectionCount;
         private int _maxConnections = 3;
 
         private object SyncObj => _idleConnections;
 
-        public HttpConnectionPool()
+        public HttpConnectionPool(HttpConnectionKind kind,string host,string sslHost,int port)
         {
-
+            _kind = kind;
+            _sslHost = sslHost;
+            _port = port;
+            _host = host;
         }
 
 
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            var isHttps = request.RequestUri.Scheme.ToLower().Equals("https");
-            var (connection, isNewConnection, failureResponse) = await GetConnectionAsync(isHttps ? HttpConnectionKind.Https : HttpConnectionKind.Http, request, cancellationToken);
-            var res= await connection.SendAsync(request, cancellationToken);
-            Console.WriteLine("_associatedConnectionCount============= " + _associatedConnectionCount);
+            var (connection, isNewConnection, failureResponse) = await GetConnectionAsync(_kind, request, cancellationToken);
+            var res = await connection.SendAsync(request, cancellationToken);
             return res;
         }
 
@@ -129,7 +135,7 @@ namespace SimpleHttpClient
             if (kind == HttpConnectionKind.Https || kind == HttpConnectionKind.SslProxyTunnel)
             {
                 var sslOptions = new SslClientAuthenticationOptions();
-                sslOptions.TargetHost = request.RequestUri.IdnHost;
+                sslOptions.TargetHost = _sslHost;
 
                 SslStream sslStream = await EstablishSslConnectionAsync(sslOptions, request, stream, cancellationToken).ConfigureAwait(false);
                 stream = sslStream;
@@ -167,7 +173,7 @@ namespace SimpleHttpClient
                 }
             };
 
-            saea.RemoteEndPoint = new DnsEndPoint(request.RequestUri.IdnHost, request.RequestUri.Port);
+            saea.RemoteEndPoint = new DnsEndPoint(_host, _port);
 
             if (Socket.ConnectAsync(SocketType.Stream, ProtocolType.Tcp, saea))
             {
@@ -281,8 +287,6 @@ namespace SimpleHttpClient
         {
             return _waiters.Dequeue();
         }
-
-
 
         public void Dispose()
         {

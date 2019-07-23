@@ -9,11 +9,11 @@ namespace SimpleHttpClient
 {
     internal class HttpClientHandler : HttpMessageHandler
     {
-        private HttpConnectionPool httpConnectionPool = new HttpConnectionPool();
+        private HttpConnectionPoolManager httpConnectionPoolManager = new HttpConnectionPoolManager();
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            return httpConnectionPool.SendAsync(request, cancellationToken);
+            return httpConnectionPoolManager.SendAsync(request, cancellationToken);
         }
     }
 }

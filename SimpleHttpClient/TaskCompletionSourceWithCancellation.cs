@@ -24,7 +24,9 @@ namespace SimpleHttpClient
             _cancellationToken = cancellationToken;
             using (cancellationToken.Register(s => ((TaskCompletionSourceWithCancellation<T>)s).OnCancellation(), this))
             {
-                return await Task.ConfigureAwait(false);
+                var connection = await Task.ConfigureAwait(false);
+                Console.WriteLine("The time has come, connection was to return to pools");
+                return connection;
             }
         }
     }

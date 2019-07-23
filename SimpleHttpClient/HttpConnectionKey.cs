@@ -20,6 +20,17 @@ namespace SimpleHttpClient
             SslHostName = sslHostName;
         }
 
+
+        public override int GetHashCode() =>
+     (SslHostName == Host ?
+         HashCode.Combine(Kind, Host, Port) :
+         HashCode.Combine(Kind, Host, Port, SslHostName));
+
+        public override bool Equals(object obj) =>
+            obj != null &&
+            obj is HttpConnectionKey &&
+            Equals((HttpConnectionKey)obj);
+
         public bool Equals(HttpConnectionKey other)
         {
             return other.Kind == Kind
@@ -30,7 +41,7 @@ namespace SimpleHttpClient
                  &&
                  other.SslHostName == SslHostName;
         }
-
+        /*
         public static implicit operator HttpConnectionKey(HttpRequestMessage httpRequest)
         {
             HttpConnectionKind kind;
@@ -45,5 +56,6 @@ namespace SimpleHttpClient
 
             return new HttpConnectionKey(kind, httpRequest.RequestUri.IdnHost, httpRequest.RequestUri.Port, httpRequest.RequestUri.IdnHost);
         }
+        */
     }
 }
