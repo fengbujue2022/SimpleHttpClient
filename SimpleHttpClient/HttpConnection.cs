@@ -70,14 +70,13 @@ namespace SimpleHttpClient
             //CRLF for header end
             await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
 
-            Console.WriteLine("raw request:");
-            Console.WriteLine(Encoding.UTF8.GetString(_writeBuffer, 0, _writeOffset));
+
+            Console.WriteLine("raw request:\r\n"+Encoding.UTF8.GetString(_writeBuffer, 0, _writeOffset));
             await FlushAsync().ConfigureAwait(false);
 
             await _stream.ReadAsync(new Memory<byte>(_readBuffer));
 
-            Console.WriteLine("raw response:");
-            Console.WriteLine(Encoding.UTF8.GetString(_readBuffer));
+            Console.WriteLine("raw response:\r\n"+Encoding.UTF8.GetString(_readBuffer));
 
             CompleteResponse();
 
