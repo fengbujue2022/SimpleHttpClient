@@ -55,7 +55,7 @@ namespace SimpleHttpClient
             {
                 if (HasWaiter())
                 {
-                    if (TransferConnection(connection))//set connection result for wait task
+                    if (TransferConnection(connection))//set connection result for waiting task
                     {
                         return;
                     }

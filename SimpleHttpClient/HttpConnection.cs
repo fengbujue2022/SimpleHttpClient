@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
+using System.Net;
 
 namespace SimpleHttpClient
 {
@@ -17,6 +18,9 @@ namespace SimpleHttpClient
         private const int InitialWriteBufferSize = InitialReadBufferSize;
         private static readonly byte[] s_spaceHttp11NewlineAsciiBytes = Encoding.ASCII.GetBytes(" HTTP/1.1\r\n");
         private static readonly byte[] s_contentLength0NewlineAsciiBytes = Encoding.ASCII.GetBytes("Content-Length: 0\r\n");
+        private static readonly byte[] s_http1DotBytes = Encoding.ASCII.GetBytes("HTTP/1.");
+        private static readonly ulong s_http10Bytes = BitConverter.ToUInt64(Encoding.ASCII.GetBytes("HTTP/1.0"));
+        private static readonly ulong s_http11Bytes = BitConverter.ToUInt64(Encoding.ASCII.GetBytes("HTTP/1.1"));
         private readonly Socket _socket;
         private readonly Stream _stream;
         private readonly HttpConnectionPool _pool;
@@ -70,17 +74,24 @@ namespace SimpleHttpClient
             //CRLF for header end
             await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
 
-
-            Console.WriteLine("raw request:\r\n"+Encoding.UTF8.GetString(_writeBuffer, 0, _writeOffset));
             await FlushAsync().ConfigureAwait(false);
 
-            await _stream.ReadAsync(new Memory<byte>(_readBuffer));
+            var response = new HttpResponseMessage();
+            ParseStatusLine(await ReadNextResponseHeaderLineAsync(), response);
 
-            Console.WriteLine("raw response:\r\n"+Encoding.UTF8.GetString(_readBuffer));
+            //parse herader
+            while (true)
+            {
+                var headerLine = await ReadNextResponseHeaderLineAsync();
+                if (headerLine.Count == 0)
+                    break;
+
+                ParseHeaderLine(headerLine, response);
+            }
 
             CompleteResponse();
 
-            return null;
+            return response;
         }
 
         public bool PollRead()
@@ -113,7 +124,7 @@ namespace SimpleHttpClient
         private Task WriteStringAsync(string s)
         {
             int offset = _writeOffset;
-            if (s.Length <= _writeBuffer.Length)
+            if (s.Length <= _writeBuffer.Length - offset)
             {
                 byte[] writeBuffer = _writeBuffer;
                 foreach (char c in s)
@@ -264,52 +275,122 @@ namespace SimpleHttpClient
             return default(ValueTask);
         }
 
-
-        private async Task ReadNextResponseHeader()
+        private async ValueTask<ArraySegment<byte>> ReadNextResponseHeaderLineAsync()
         {
-            if (_readOffset == 0)
-                await FillAsync();
-
-            int lfIndex = Array.IndexOf(_readBuffer, (byte)'\n', _readLength);
-            if (lfIndex >= 0)
+            while (true)
             {
-                if (_readBuffer[lfIndex - 1] == (byte)'\r')
+                int lfIndex = Array.IndexOf(_readBuffer, (byte)'\n', _readOffset);
+                if (lfIndex >= 0)
                 {
-
+                    if (_readBuffer[lfIndex - 1] == (byte)'\r')
+                    {
+                        var segments = new ArraySegment<byte>(_readBuffer, _readOffset, lfIndex - _readOffset);
+                        _readOffset = lfIndex + 1;
+                        return segments;
+                    }
+                }
+                else
+                {
+                    await FillAsync().ConfigureAwait(false);
                 }
             }
         }
 
+        //prerequisite : we think header line size must less 4K
         private async Task FillAsync()
         {
-            int remaining = _readLength - _readOffset;
+            var remaining = _readLength - _readOffset;
 
             if (remaining == 0)
             {
                 _readOffset = _readLength = 0;
             }
-            else if (_readOffset > 0)
+            else if (remaining > 0)//merge unread buffer to new buffer
             {
-                Buffer.BlockCopy(_readBuffer, _readOffset, _readBuffer, 0, remaining);
-                _readOffset = 0;
-                _readLength = remaining;
-            }
-            else if (remaining == _readBuffer.Length)
-            {
-                var newReadBuffer = new byte[_readBuffer.Length * 2];
-                Buffer.BlockCopy(_readBuffer, 0, newReadBuffer, 0, remaining);
+                var newReadBuffer = new byte[_readBuffer.Length];
+                Buffer.BlockCopy(_readBuffer, _readOffset, newReadBuffer, 0, remaining);
                 _readBuffer = newReadBuffer;
                 _readOffset = 0;
-                _readLength = remaining;
             }
-
-            int bytesRead = await _stream.ReadAsync(new Memory<byte>(_readBuffer, _readLength, _readBuffer.Length - _readLength)).ConfigureAwait(false);
-            if (bytesRead == 0)
-            {
-                throw new IOException("没得bytes可读了");
-            }
-
+            var bytesRead = await _stream.ReadAsync(new Memory<byte>(_readBuffer, 0, _readBuffer.Length - _readLength));
             _readLength += bytesRead;
+        }
+
+
+        private static bool EqualsOrdinal(string left, Span<byte> right)
+        {
+            if (left.Length != right.Length)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < left.Length; i++)
+            {
+                if (left[i] != right[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        internal static bool IsDigit(byte c) => (uint)(c - '0') <= '9' - '0';
+
+        private static void ParseStatusLine(ArraySegment<byte> line, HttpResponseMessage response) =>
+           ParseStatusLine((Span<byte>)line, response);
+
+        private static void ParseStatusLine(Span<byte> line, HttpResponseMessage response)
+        {
+            var MinStatusLineLength = 13;
+
+            ulong first8Bytes = BitConverter.ToUInt64(line);
+
+            if (first8Bytes == s_http11Bytes)
+            {
+                response.Version = HttpVersion.Version11;
+            }
+            else if (first8Bytes == s_http10Bytes)
+            {
+                response.Version = HttpVersion.Version10;
+            }
+            else
+            {
+                byte minorVersion = line[7];
+                if (IsDigit(minorVersion) &&
+                    line.Slice(0, 7).SequenceEqual(s_http1DotBytes))
+                {
+                    response.Version = new Version(1, minorVersion - '0');
+                }
+                else
+                {
+                    throw new HttpRequestException("无效的响应状态行");
+                }
+            }
+            byte status1 = line[9], status2 = line[10], status3 = line[11];
+            if (!IsDigit(status1) || !IsDigit(status2) || !IsDigit(status3))
+            {
+                throw new HttpRequestException("无效的状态码");
+            }
+            response.StatusCode = ((HttpStatusCode)(100 * (status1 - '0') + 10 * (status2 - '0') + (status3 - '0')));
+
+            if (line.Length == MinStatusLineLength)
+            {
+                response.ReasonPhrase = string.Empty;
+            }
+            else if (line[MinStatusLineLength] == ' ')
+            {
+                Span<byte> reasonBytes = line.Slice(MinStatusLineLength + 1);
+                string knownReasonPhrase = HttpStatusDescription.Get(response.StatusCode);
+                response.ReasonPhrase = EqualsOrdinal(knownReasonPhrase, reasonBytes) ?
+                    knownReasonPhrase :
+                    reasonBytes.ToString();
+            }
+        }
+
+        private static void ParseHeaderLine(Span<byte> line, HttpResponseMessage response)
+        {
+
         }
 
         public void Dispose() => Dispose(true);
