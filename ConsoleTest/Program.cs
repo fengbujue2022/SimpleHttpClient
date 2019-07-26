@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading.Tasks;
 using SimpleHttpClient;
 
@@ -9,25 +11,28 @@ namespace ConsoleTest
 {
     class Program
     {
+        private static readonly SimpleHttpClient.HttpClient client = HttpClientFactory.Create(new HeaderValueHandler());
+
         static async Task Main(string[] args)
+        {
+            //await TestParallelCall(10);
+            var request = new HttpRequestMessage(HttpMethod.Get, "https://ss1.bdstatic.com/5eN1bjq8AAUYm2zgoY3K/r/www/cache/static/protocol/https/amd_modules/@baidu/search-sug_73a0f48.js");
+            var res = await client.SendAsync(request);
+        }
+
+        public static async Task TestParallelCall(int limit)
         {
             try
             {
-                var client = HttpClientFactory.Create(new HeaderValueHandler());
-
-                Parallel.ForEach(Enumerable.Range(0, 10), (index) =>
+                Parallel.ForEach(Enumerable.Range(0, limit), async (index) =>
                 {
-                    Task.Run(async () =>
-                    {
-                        var request = new HttpRequestMessage(HttpMethod.Get, "https://ss1.bdstatic.com/5eN1bjq8AAUYm2zgoY3K/r/www/cache/static/protocol/https/amd_modules/@baidu/search-sug_73a0f48.js");
-                        var res = await client.SendAsync(request);
-                    }).Wait();
+                    var request = new HttpRequestMessage(HttpMethod.Get, "https://ss1.bdstatic.com/5eN1bjq8AAUYm2zgoY3K/r/www/cache/static/protocol/https/amd_modules/@baidu/search-sug_73a0f48.js");
+                    var res = await client.SendAsync(request);
+
                 });
             }
-            catch (Exception ex)
-            {
+            catch (Exception ex) { }
 
-            }
         }
     }
 
@@ -40,6 +45,5 @@ namespace ConsoleTest
             return base.SendAsync(request, cancellationToken);
         }
     }
-
 
 }
