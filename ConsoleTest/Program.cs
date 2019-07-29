@@ -15,24 +15,27 @@ namespace ConsoleTest
 
         static async Task Main(string[] args)
         {
-            //await TestParallelCall(10);
-            var request = new HttpRequestMessage(HttpMethod.Get, "https://ss1.bdstatic.com/5eN1bjq8AAUYm2zgoY3K/r/www/cache/static/protocol/https/amd_modules/@baidu/search-sug_73a0f48.js");
-            var res = await client.SendAsync(request);
+            try
+            {
+                //await TestParallelCall(10);
+                var request = new HttpRequestMessage(HttpMethod.Get, "https://ss1.bdstatic.com/5eN1bjq8AAUYm2zgoY3K/r/www/cache/static/protocol/https/amd_modules/@baidu/search-sug_73a0f48.js");
+                var res = await client.SendAsync(request);
+                
+            }
+            catch (Exception ex)
+            {
+
+            }
+
         }
 
         public static async Task TestParallelCall(int limit)
         {
-            try
+            Parallel.ForEach(Enumerable.Range(0, limit), async (index) =>
             {
-                Parallel.ForEach(Enumerable.Range(0, limit), async (index) =>
-                {
-                    var request = new HttpRequestMessage(HttpMethod.Get, "https://ss1.bdstatic.com/5eN1bjq8AAUYm2zgoY3K/r/www/cache/static/protocol/https/amd_modules/@baidu/search-sug_73a0f48.js");
-                    var res = await client.SendAsync(request);
-
-                });
-            }
-            catch (Exception ex) { }
-
+                var request = new HttpRequestMessage(HttpMethod.Get, "https://ss1.bdstatic.com/5eN1bjq8AAUYm2zgoY3K/r/www/cache/static/protocol/https/amd_modules/@baidu/search-sug_73a0f48.js");
+                var res = await client.SendAsync(request);
+            });
         }
     }
 

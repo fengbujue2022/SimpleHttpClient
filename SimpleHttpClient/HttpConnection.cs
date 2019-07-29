@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Net;
+using System.Buffers;
 
 namespace SimpleHttpClient
 {
@@ -76,18 +77,28 @@ namespace SimpleHttpClient
 
             await FlushAsync().ConfigureAwait(false);
 
-            var response = new HttpResponseMessage();
+            var response = new HttpResponseMessage() { RequestMessage = request };
             ParseStatusLine(await ReadNextResponseHeaderLineAsync(), response);
 
             //parse herader
             while (true)
             {
                 var headerLine = await ReadNextResponseHeaderLineAsync();
-                if (headerLine.Count == 0)
+                if (headerLine.Count == 1 && headerLine[0] == (byte)'\r')
                     break;
 
                 ParseHeaderLine(headerLine, response);
             }
+            if (response.Headers.ConnectionClose.GetValueOrDefault())
+            {
+                _connectionClose = true;
+            }
+            
+            Stream responseStream=null;
+            //TODO:  set body stream
+
+
+            ((HttpConnectionResponseContent)response.Content).SetStream(responseStream);
 
             CompleteResponse();
 
@@ -296,7 +307,7 @@ namespace SimpleHttpClient
             }
         }
 
-        //prerequisite : we think header line size must less 4K
+        //TODO: need to resize buffer when header line size greater than 4k
         private async Task FillAsync()
         {
             var remaining = _readLength - _readOffset;
@@ -390,8 +401,37 @@ namespace SimpleHttpClient
 
         private static void ParseHeaderLine(Span<byte> line, HttpResponseMessage response)
         {
+            var pos = 0;
+            while (line[pos] != (byte)':')
+            {
+                pos++;
+                if (pos == line.Length)
+                {
+                    throw new HttpRequestException(Encoding.ASCII.GetString(line));
+                }
+            }
 
+            if (pos == 0)
+            {
+                throw new HttpRequestException("无效的空header");
+            }
+
+            var headerName = Encoding.UTF8.GetString(line.Slice(0, pos));
+
+            while (line[pos] != (byte)' ')
+            {
+                pos++;
+                if (pos == line.Length)
+                {
+                    throw new HttpRequestException(Encoding.ASCII.GetString(line));
+                }
+            }
+
+            var headerValue = Encoding.UTF8.GetString(line.Slice(++pos));
+
+            response.Headers.TryAddWithoutValidation(headerName, headerValue);
         }
+
 
         public void Dispose() => Dispose(true);
 
