@@ -77,13 +77,13 @@ namespace SimpleHttpClient
 
             await FlushAsync().ConfigureAwait(false);
 
-            var response = new HttpResponseMessage() { RequestMessage = request };
-            ParseStatusLine(await ReadNextResponseHeaderLineAsync(), response);
+            var response = new HttpResponseMessage() { RequestMessage = request, Content = new HttpConnectionResponseContent() };
+            ParseStatusLine(await ReadNextResponseHeaderLineAsync().ConfigureAwait(false), response);
 
             //parse herader
             while (true)
             {
-                var headerLine = await ReadNextResponseHeaderLineAsync();
+                var headerLine = await ReadNextResponseHeaderLineAsync().ConfigureAwait(false);
                 if (headerLine.Count == 1 && headerLine[0] == (byte)'\r')
                     break;
 
@@ -93,12 +93,14 @@ namespace SimpleHttpClient
             {
                 _connectionClose = true;
             }
+
+            Stream responseStream = null;
             
-            Stream responseStream=null;
-            //TODO:  set body stream
-
-
-            ((HttpConnectionResponseContent)response.Content).SetStream(responseStream);
+            
+            //TODO:  wrap the stream
+            var remaining = _readLength - _readOffset;
+            var memoryStream = new MemoryStream(_readBuffer, _readOffset, remaining);
+            ((HttpConnectionResponseContent)response.Content).SetStream(memoryStream);
 
             CompleteResponse();
 

@@ -20,7 +20,7 @@ namespace ConsoleTest
                 //await TestParallelCall(10);
                 var request = new HttpRequestMessage(HttpMethod.Get, "https://ss1.bdstatic.com/5eN1bjq8AAUYm2zgoY3K/r/www/cache/static/protocol/https/amd_modules/@baidu/search-sug_73a0f48.js");
                 var res = await client.SendAsync(request);
-                
+                var content=await res.Content.ReadAsStringAsync();
             }
             catch (Exception ex)
             {
