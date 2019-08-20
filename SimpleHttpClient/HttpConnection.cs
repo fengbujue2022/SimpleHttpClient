@@ -13,7 +13,7 @@ using System.Buffers;
 
 namespace SimpleHttpClient
 {
-    internal class HttpConnection : IDisposable
+    internal partial class HttpConnection : IDisposable
     {
         private const int InitialReadBufferSize = 4096;
         private const int InitialWriteBufferSize = InitialReadBufferSize;
@@ -24,7 +24,7 @@ namespace SimpleHttpClient
         private static readonly ulong s_http11Bytes = BitConverter.ToUInt64(Encoding.ASCII.GetBytes("HTTP/1.1"));
         private readonly Socket _socket;
         private readonly Stream _stream;
-        private readonly HttpConnectionPool _pool;
+        internal readonly HttpConnectionPool _pool;
 
         private bool _connectionClose;
 
@@ -84,7 +84,7 @@ namespace SimpleHttpClient
             while (true)
             {
                 var headerLine = await ReadNextResponseHeaderLineAsync().ConfigureAwait(false);
-                if (headerLine.Count == 1 && headerLine[0] == (byte)'\r')
+                if (headerLine.Count == 0)
                     break;
 
                 ParseHeaderLine(headerLine, response);
@@ -95,13 +95,22 @@ namespace SimpleHttpClient
             }
 
             Stream responseStream = null;
-            
-            
-            //TODO:  wrap the stream
-            var remaining = _readLength - _readOffset;
-            var memoryStream = new MemoryStream(_readBuffer, _readOffset, remaining);
-            ((HttpConnectionResponseContent)response.Content).SetStream(memoryStream);
-
+            if (response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength > 0)
+            {
+                //TODO : temporary solution
+                var buffer = new byte[response.Content.Headers.ContentLength.Value];
+                var count = await ReadAsync(buffer);
+                if (count > 0)
+                {
+                    var memoryStream = new MemoryStream(buffer, 0, count);
+                    responseStream = memoryStream;
+                }
+            }
+            else
+            {
+                responseStream = new MemoryStream();//empty
+            }
+            ((HttpConnectionResponseContent)response.Content).SetStream(responseStream);
             CompleteResponse();
 
             return response;
@@ -112,7 +121,7 @@ namespace SimpleHttpClient
             return _socket.Poll(0, SelectMode.SelectRead);
         }
 
-        private void CompleteResponse()
+        internal void CompleteResponse()
         {
             if (_readLength != _readOffset)
             {
@@ -297,7 +306,7 @@ namespace SimpleHttpClient
                 {
                     if (_readBuffer[lfIndex - 1] == (byte)'\r')
                     {
-                        var segments = new ArraySegment<byte>(_readBuffer, _readOffset, lfIndex - _readOffset);
+                        var segments = new ArraySegment<byte>(_readBuffer, _readOffset, (lfIndex - 1) - _readOffset);
                         _readOffset = lfIndex + 1;
                         return segments;
                     }
@@ -309,7 +318,6 @@ namespace SimpleHttpClient
             }
         }
 
-        //TODO: need to resize buffer when header line size greater than 4k
         private async Task FillAsync()
         {
             var remaining = _readLength - _readOffset;
@@ -318,15 +326,72 @@ namespace SimpleHttpClient
             {
                 _readOffset = _readLength = 0;
             }
-            else if (remaining > 0)//merge unread buffer to new buffer
+            else if (_readOffset > 0)//merge unread buffer to new buffer
             {
-                var newReadBuffer = new byte[_readBuffer.Length];
-                Buffer.BlockCopy(_readBuffer, _readOffset, newReadBuffer, 0, remaining);
+                Buffer.BlockCopy(_readBuffer, _readOffset, _readBuffer, 0, remaining);
+                _readOffset = 0;
+                _readLength = remaining;
+            }
+            else if (remaining == _readBuffer.Length)//resize
+            {
+                var newReadBuffer = new byte[_readBuffer.Length * 2];
+                Buffer.BlockCopy(_readBuffer, 0, newReadBuffer, 0, remaining);
                 _readBuffer = newReadBuffer;
                 _readOffset = 0;
+                _readLength = remaining;
             }
-            var bytesRead = await _stream.ReadAsync(new Memory<byte>(_readBuffer, 0, _readBuffer.Length - _readLength));
+            var bytesRead = await _stream.ReadAsync(new Memory<byte>(_readBuffer, remaining, _readBuffer.Length - _readLength));
             _readLength += bytesRead;
+        }
+
+        private void ReadFromBuffer(Span<byte> buffer)
+        {
+            new Span<byte>(_readBuffer, _readOffset, buffer.Length).CopyTo(buffer);
+            _readOffset += buffer.Length;
+        }
+
+        private int Read(Span<byte> destination)
+        {
+            int remaining = _readLength - _readOffset;
+            if (remaining > 0)
+            {
+                // We have data in the read buffer.  Return it to the caller.
+                if (destination.Length <= remaining)
+                {
+                    ReadFromBuffer(destination);
+                    return destination.Length;
+                }
+                else
+                {
+                    ReadFromBuffer(destination.Slice(0, remaining));
+                    return remaining;
+                }
+            }
+
+            int count = _stream.Read(destination);
+            return count;
+        }
+
+        private async ValueTask<int> ReadAsync(Memory<byte> destination)
+        {
+            int remaining = _readLength - _readOffset;
+            if (remaining > 0)
+            {
+                // We have data in the read buffer.  Return it to the caller.
+                if (destination.Length <= remaining)
+                {
+                    ReadFromBuffer(destination.Span);
+                    return destination.Length;
+                }
+                else
+                {
+                    ReadFromBuffer(destination.Span.Slice(0, remaining));
+                    return remaining;
+                }
+            }
+
+            int count = await _stream.ReadAsync(destination).ConfigureAwait(false);
+            return count;
         }
 
 
@@ -431,7 +496,10 @@ namespace SimpleHttpClient
 
             var headerValue = Encoding.UTF8.GetString(line.Slice(++pos));
 
-            response.Headers.TryAddWithoutValidation(headerName, headerValue);
+            if (!response.Headers.TryAddWithoutValidation(headerName, headerValue))
+            {
+                response.Content.Headers.TryAddWithoutValidation(headerName, headerValue);
+            }
         }
 
 
