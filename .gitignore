@@ -3,3 +3,5 @@ Test/bin/
 SimpleHttpClient/obj/
 SimpleHttpClient/bin/
 .vs/
+ConsoleTest/obj/
+ConsoleTest/bin/

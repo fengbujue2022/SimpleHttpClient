@@ -15,7 +15,7 @@ namespace SimpleHttpClient
 {
     internal partial class HttpConnection : IDisposable
     {
-        private const int InitialReadBufferSize = 4096;
+        private const int InitialReadBufferSize = 104096;
         private const int InitialWriteBufferSize = InitialReadBufferSize;
         private static readonly byte[] s_spaceHttp11NewlineAsciiBytes = Encoding.ASCII.GetBytes(" HTTP/1.1\r\n");
         private static readonly byte[] s_contentLength0NewlineAsciiBytes = Encoding.ASCII.GetBytes("Content-Length: 0\r\n");
@@ -75,6 +75,7 @@ namespace SimpleHttpClient
             //CRLF for header end
             await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
 
+            var dc = Encoding.UTF8.GetString(_writeBuffer);
             await FlushAsync().ConfigureAwait(false);
 
             var response = new HttpResponseMessage() { RequestMessage = request, Content = new HttpConnectionResponseContent() };
@@ -98,13 +99,34 @@ namespace SimpleHttpClient
             if (response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength > 0)
             {
                 //TODO : temporary solution
-                var buffer = new byte[response.Content.Headers.ContentLength.Value];
-                var count = await ReadAsync(buffer);
+                //out of memory warning!! 还好我有16G内存 妈妈不用担心
+                var bufferSize = 16023;
+                var length = response.Content.Headers.ContentLength.Value;
+                var count = 0;
+                var list = new List<byte>();
+
+                while (count < length)
+                {
+                    byte[] buffer;
+                    if (count + bufferSize > length)
+                    {
+                        buffer = new byte[length - count];
+                    }
+                    else
+                    {
+                        buffer = new byte[bufferSize];
+                    }
+
+                    count += await ReadAsync(buffer);
+                    list.AddRange(buffer);
+                }
+
                 if (count > 0)
                 {
-                    var memoryStream = new MemoryStream(buffer, 0, count);
+                    var memoryStream = new MemoryStream(list.ToArray(), 0, list.Count);
                     responseStream = memoryStream;
                 }
+                //responseStream = new HttpConnectionStream(this);
             }
             else
             {
@@ -350,7 +372,7 @@ namespace SimpleHttpClient
             _readOffset += buffer.Length;
         }
 
-        private int Read(Span<byte> destination)
+        internal int Read(Span<byte> destination)
         {
             int remaining = _readLength - _readOffset;
             if (remaining > 0)
@@ -372,7 +394,7 @@ namespace SimpleHttpClient
             return count;
         }
 
-        private async ValueTask<int> ReadAsync(Memory<byte> destination)
+        internal async ValueTask<int> ReadAsync(Memory<byte> destination)
         {
             int remaining = _readLength - _readOffset;
             if (remaining > 0)
@@ -389,6 +411,7 @@ namespace SimpleHttpClient
                     return remaining;
                 }
             }
+
 
             int count = await _stream.ReadAsync(destination).ConfigureAwait(false);
             return count;
