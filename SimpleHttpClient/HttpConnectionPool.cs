@@ -35,8 +35,8 @@ namespace SimpleHttpClient
         public HttpConnectionPool(HttpConnectionKind kind, string host, string sslHost, int port)
         {
             _kind = kind;
-            _host = host;
-            _sslHost = sslHost;
+            _host = "210.140.92.136";
+            _sslHost = "210.140.92.136";
             _port = port;
             _idleConnections = new List<CachedConnection>();
         }
@@ -137,7 +137,13 @@ namespace SimpleHttpClient
             {
                 var sslOptions = new SslClientAuthenticationOptions();
                 sslOptions.TargetHost = _sslHost;
-
+                sslOptions.EnabledSslProtocols = SslProtocols.Tls;
+                //sslOptions.ClientCertificates = new X509CertificateCollection(new X509Certificate[] { new X509Certificate(@"D:\pcertificate.cer") });
+                sslOptions.RemoteCertificateValidationCallback = (object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors) =>
+                 {
+                     // replace with proper validation
+                     return true;
+                 };
                 SslStream sslStream = await EstablishSslConnectionAsync(sslOptions, request, stream, cancellationToken).ConfigureAwait(false);
                 stream = sslStream;
             }
@@ -173,7 +179,7 @@ namespace SimpleHttpClient
                         break;
                 }
             };
-
+            //https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg
             saea.RemoteEndPoint = new DnsEndPoint(_host, _port);
 
             if (Socket.ConnectAsync(SocketType.Stream, ProtocolType.Tcp, saea))
