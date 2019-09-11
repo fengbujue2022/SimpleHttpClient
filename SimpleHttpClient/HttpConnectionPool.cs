@@ -179,6 +179,7 @@ namespace SimpleHttpClient
                         break;
                 }
             };
+
             //https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg
             saea.RemoteEndPoint = new DnsEndPoint(_host, _port);
 
