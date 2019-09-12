@@ -117,8 +117,9 @@ namespace SimpleHttpClient
                         buffer = new byte[bufferSize];
                     }
 
-                    count += await ReadAsync(buffer);
-                    list.AddRange(buffer);
+                    var currentCount = await ReadAsync(buffer);
+                    count += currentCount;
+                    list.AddRange(buffer.Take(currentCount));
                 }
 
                 if (count > 0)
