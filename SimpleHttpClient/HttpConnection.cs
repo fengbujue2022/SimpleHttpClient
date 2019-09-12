@@ -25,6 +25,7 @@ namespace SimpleHttpClient
         private readonly Socket _socket;
         private readonly Stream _stream;
         internal readonly HttpConnectionPool _pool;
+        private readonly WeakReference<HttpConnection> _weakThisRef;
 
         private bool _connectionClose;
 
@@ -47,6 +48,7 @@ namespace SimpleHttpClient
             _stream = stream;
             _writeBuffer = new byte[InitialWriteBufferSize];
             _readBuffer = new byte[InitialReadBufferSize];
+            _weakThisRef = new WeakReference<HttpConnection>(this);
         }
 
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -100,6 +102,7 @@ namespace SimpleHttpClient
             {
                 //TODO : temporary solution
                 //out of memory warning!! 还好我有16G内存 妈妈不用担心
+                /*
                 var bufferSize = 16023;
                 var length = response.Content.Headers.ContentLength.Value;
                 var count = 0;
@@ -127,14 +130,16 @@ namespace SimpleHttpClient
                     var memoryStream = new MemoryStream(list.ToArray(), 0, list.Count);
                     responseStream = memoryStream;
                 }
-                //responseStream = new HttpConnectionStream(this);
+                */
+                responseStream = new HttpConnectionStream(this, (ulong)response.Content.Headers.ContentLength.Value);
             }
             else
             {
                 responseStream = new MemoryStream();//empty
+                CompleteResponse();
             }
             ((HttpConnectionResponseContent)response.Content).SetStream(responseStream);
-            CompleteResponse();
+
 
             return response;
         }
@@ -142,6 +147,18 @@ namespace SimpleHttpClient
         public bool PollRead()
         {
             return _socket.Poll(0, SelectMode.SelectRead);
+        }
+
+        internal CancellationTokenRegistration RegisterCancellation(CancellationToken cancellationToken)
+        {
+            return cancellationToken.Register(s =>
+            {
+                var weakThisRef = (WeakReference<HttpConnection>)s;
+                if (weakThisRef.TryGetTarget(out HttpConnection strongThisRef))
+                {
+                    strongThisRef.Dispose();
+                }
+            }, _weakThisRef);
         }
 
         internal void CompleteResponse()
@@ -418,6 +435,74 @@ namespace SimpleHttpClient
             return count;
         }
 
+        internal async Task CopyFromBufferAsync(Stream destination, int count, CancellationToken cancellationToken)
+        {
+            await destination.WriteAsync(new ReadOnlyMemory<byte>(_readBuffer, _readOffset, count), cancellationToken).ConfigureAwait(false);
+            _readOffset += count;
+        }
+
+        internal async Task CopyToContentLengthAsync(Stream destination, ulong length, int bufferSize, CancellationToken cancellationToken)
+        {
+            int remaining = _readLength - _readOffset;
+            if (remaining > 0)
+            {
+                if ((ulong)remaining > length)
+                {
+                    remaining = (int)length;
+                }
+                await CopyFromBufferAsync(destination, remaining, cancellationToken).ConfigureAwait(false);
+
+                length -= (ulong)remaining;
+                if (length == 0)
+                {
+                    return;
+                }
+            }
+
+            byte[] origReadBuffer = null;
+            try
+            {
+                while (true)
+                {
+                    await FillAsync().ConfigureAwait(false);
+
+                    remaining = (ulong)_readLength < length ? _readLength : (int)length;
+                    await CopyFromBufferAsync(destination, remaining, cancellationToken).ConfigureAwait(false);
+
+                    length -= (ulong)remaining;
+                    if (length == 0)
+                    {
+                        return;
+                    }
+
+                    if (origReadBuffer == null)
+                    {
+                        byte[] currentReadBuffer = _readBuffer;
+                        if (remaining == currentReadBuffer.Length)
+                        {
+                            int desiredBufferSize = (int)Math.Min((ulong)bufferSize, length);
+                            if (desiredBufferSize > currentReadBuffer.Length)
+                            {
+                                origReadBuffer = currentReadBuffer;
+                                _readBuffer = ArrayPool<byte>.Shared.Rent(desiredBufferSize);
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (origReadBuffer != null)
+                {
+                    byte[] tmp = _readBuffer;
+                    _readBuffer = origReadBuffer;
+                    ArrayPool<byte>.Shared.Return(tmp);
+
+                    _readLength = _readOffset < _readLength ? 1 : 0;
+                    _readOffset = 0;
+                }
+            }
+        }
 
         private static bool EqualsOrdinal(string left, Span<byte> right)
         {
