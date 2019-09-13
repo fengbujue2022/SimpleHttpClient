@@ -19,6 +19,7 @@ namespace SimpleHttpClient
         public HttpClient()
             : this(new HttpClientHandler())
         {
+
         }
 
         public HttpClient(HttpMessageHandler handler) :

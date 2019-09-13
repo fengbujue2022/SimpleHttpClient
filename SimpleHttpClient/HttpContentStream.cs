@@ -26,6 +26,7 @@ namespace SimpleHttpClient
         public HttpConnectionStream(HttpConnection httpConnection, ulong contentLength)
         {
             _connection = httpConnection;
+            _contentBytesRemaining = contentLength;
         }
 
         public override void Flush()
@@ -177,6 +178,20 @@ namespace SimpleHttpClient
         public override void Write(byte[] buffer, int offset, int count)
         {
             throw new NotImplementedException();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (_connection != null)
+                {
+                    _connection.Dispose();
+                    _connection = null;
+                }
+            }
+
+            base.Dispose(disposing);
         }
     }
 }

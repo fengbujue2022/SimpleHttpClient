@@ -20,13 +20,13 @@ namespace SimpleHttpClient
             _pools = new ConcurrentDictionary<HttpConnectionKey, HttpConnectionPool>();
         }
 
-        public Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        public Task<HttpResponseMessage> SendAsync(HttpClientHandler handler, HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var key = (HttpConnectionKey)request;
             HttpConnectionPool pool;
             while (!_pools.TryGetValue(key, out pool))
             {
-                _pools.TryAdd(key, new HttpConnectionPool(key.Kind, key.Host, key.SslHostName, key.Port));
+                _pools.TryAdd(key, new HttpConnectionPool(key.Kind, key.Host, key.SslHostName, key.Port, handler));
             }
             return pool.SendAsync(request, cancellationToken);
         }

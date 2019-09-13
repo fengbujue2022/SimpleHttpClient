@@ -2,8 +2,12 @@
 using System.IO;
 using System.Linq;
 using System.Management;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
+using System.Net;
+using SimpleHttpClient;
+using System.Collections.Generic;
 
 namespace ConsoleTest
 {
@@ -12,14 +16,17 @@ namespace ConsoleTest
         static async Task Main(string[] args)
         {
             //https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg
-            var simpleClient = SimpleHttpClient.HttpClientFactory.Create(new HeaderValueHandler());
+            var simpleClient = SimpleHttpClient.HttpClientFactory.Create((handler) =>
+            {
+                handler.EndPointProvider = new PivixEndPointProvider();
+            }, new HeaderValueHandler());
             var response = await simpleClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, "https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg"));
             //NetworkConfigurator.SetNameservers("i.pximg.net", "210.140.92.136");
-            //var client = HttpClientFactory.Create(new HeaderValueHandler());
+            //var client = System.Net.Http.HttpClientFactory.Create(new HeaderValueHandler());
             //var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get, "https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg"));
 
             //var d = await response.Content.ReadAsStringAsync();
-            using (var s = File.Open($@"D:\63771031_p0_master1200.jpg", FileMode.OpenOrCreate))
+            using (var s = File.Open($@"C:\Users\windows\Desktop\63771031_p0_master1200.jpg", FileMode.OpenOrCreate))
             {
                 await response.Content.CopyToAsync(s);
             }
@@ -33,6 +40,20 @@ namespace ConsoleTest
             request.Headers.Add("User-Agent", "PixivIOSApp/5.8.0");
             request.Headers.Add("referer", "https://app-api.pixiv.net/");
             return base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    public class PivixEndPointProvider : EndPointProvider
+    {
+        private readonly IDictionary<string, string> DnsMap = new Dictionary<string, string>()
+        {
+            {"i.pximg.net","210.140.92.136"},
+        };
+
+        public override EndPoint GetEndPoint(string host, int port)
+        {
+
+            return null;
         }
     }
 

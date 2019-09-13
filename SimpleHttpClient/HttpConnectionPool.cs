@@ -25,6 +25,7 @@ namespace SimpleHttpClient
         private readonly string _sslHost;
         private readonly string _host;
         private readonly int _port;
+        private readonly HttpClientHandler _handler;
 
         private bool _disposed;
         private int _associatedConnectionCount;
@@ -32,12 +33,13 @@ namespace SimpleHttpClient
 
         private object SyncObj => _idleConnections;
 
-        public HttpConnectionPool(HttpConnectionKind kind, string host, string sslHost, int port)
+        public HttpConnectionPool(HttpConnectionKind kind, string host, string sslHost, int port, HttpClientHandler handler)
         {
             _kind = kind;
-            _host = "210.140.92.136";
-            _sslHost = "210.140.92.136";
+            _host = host;
+            _sslHost = sslHost;
             _port = port;
+            _handler = handler;
             _idleConnections = new List<CachedConnection>();
         }
 
@@ -138,10 +140,9 @@ namespace SimpleHttpClient
                 var sslOptions = new SslClientAuthenticationOptions();
                 sslOptions.TargetHost = _sslHost;
                 sslOptions.EnabledSslProtocols = SslProtocols.Tls;
-                //sslOptions.ClientCertificates = new X509CertificateCollection(new X509Certificate[] { new X509Certificate(@"D:\pcertificate.cer") });
                 sslOptions.RemoteCertificateValidationCallback = (object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors) =>
                  {
-                     // replace with proper validation
+                     //TODO
                      return true;
                  };
                 SslStream sslStream = await EstablishSslConnectionAsync(sslOptions, request, stream, cancellationToken).ConfigureAwait(false);
@@ -180,8 +181,7 @@ namespace SimpleHttpClient
                 }
             };
 
-            //https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg
-            saea.RemoteEndPoint = new DnsEndPoint(_host, _port);
+            saea.RemoteEndPoint = _handler.EndPointProvider.GetEndPoint(_host, _port);
 
             if (Socket.ConnectAsync(SocketType.Stream, ProtocolType.Tcp, saea))
             {

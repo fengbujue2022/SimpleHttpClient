@@ -7,13 +7,20 @@ using System.Threading.Tasks;
 
 namespace SimpleHttpClient
 {
-    internal class HttpClientHandler : HttpMessageHandler
+    public class HttpClientHandler : HttpMessageHandler
     {
-        private HttpConnectionPoolManager httpConnectionPoolManager = new HttpConnectionPoolManager();
+        private HttpConnectionPoolManager httpConnectionPoolManager;
+
+        public EndPointProvider EndPointProvider { get; set; } = new EndPointProvider();
+
+        public HttpClientHandler()
+        {
+            httpConnectionPoolManager = new HttpConnectionPoolManager();
+        }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            return httpConnectionPoolManager.SendAsync(request, cancellationToken);
+            return httpConnectionPoolManager.SendAsync(this, request, cancellationToken);
         }
     }
 }

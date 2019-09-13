@@ -10,7 +10,14 @@ namespace SimpleHttpClient
     {
         public static HttpClient Create(params DelegatingHandler[] handlers)
         {
-            return Create(new HttpClientHandler(), handlers);
+            return Create((Action<HttpClientHandler>)null, handlers);
+        }
+
+        public static HttpClient Create(Action<HttpClientHandler> configure, params DelegatingHandler[] handlers)
+        {
+            var handler = new HttpClientHandler();
+            configure?.Invoke(handler);
+            return Create(handler, handlers);
         }
 
         public static HttpClient Create(HttpMessageHandler innerHandler, params DelegatingHandler[] handlers)
