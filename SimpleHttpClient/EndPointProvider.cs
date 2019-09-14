@@ -11,5 +11,10 @@ namespace SimpleHttpClient
         {
             return new DnsEndPoint(host, port); ;
         }
+
+        public virtual string GetHost(string host)
+        {
+            return host;
+        }
     }
 }

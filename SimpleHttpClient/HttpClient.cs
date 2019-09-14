@@ -14,7 +14,7 @@ namespace SimpleHttpClient
         private CancellationTokenSource _pendingRequestsCts;
         private volatile bool _disposed;
 
-        public TimeSpan TimeOut { get; set; } = TimeSpan.FromMilliseconds(100);
+        public TimeSpan TimeOut { get; set; } = TimeSpan.FromSeconds(100);
 
         public HttpClient()
             : this(new HttpClientHandler())

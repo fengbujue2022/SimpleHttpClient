@@ -138,7 +138,7 @@ namespace SimpleHttpClient
             if (kind == HttpConnectionKind.Https || kind == HttpConnectionKind.SslProxyTunnel)
             {
                 var sslOptions = new SslClientAuthenticationOptions();
-                sslOptions.TargetHost = _sslHost;
+                sslOptions.TargetHost = _handler.EndPointProvider.GetHost(_sslHost);
                 sslOptions.EnabledSslProtocols = SslProtocols.Tls;
                 sslOptions.RemoteCertificateValidationCallback = (object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors) =>
                  {

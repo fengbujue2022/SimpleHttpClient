@@ -15,7 +15,7 @@ namespace SimpleHttpClient
 {
     internal partial class HttpConnection : IDisposable
     {
-        private const int InitialReadBufferSize = 104096;
+        private const int InitialReadBufferSize = 4096;
         private const int InitialWriteBufferSize = InitialReadBufferSize;
         private static readonly byte[] s_spaceHttp11NewlineAsciiBytes = Encoding.ASCII.GetBytes(" HTTP/1.1\r\n");
         private static readonly byte[] s_contentLength0NewlineAsciiBytes = Encoding.ASCII.GetBytes("Content-Length: 0\r\n");
@@ -59,7 +59,7 @@ namespace SimpleHttpClient
             //blank space
             await WriteByteAsync((byte)' ').ConfigureAwait(false);
             //host and querystring
-            await WriteStringAsync(request.RequestUri.PathAndQuery).ConfigureAwait(false);
+            await WriteStringAsync(request.RequestUri.AbsoluteUri).ConfigureAwait(false);
             //protocol
             await WriteBytesAsync(s_spaceHttp11NewlineAsciiBytes).ConfigureAwait(false);
             //header
@@ -77,7 +77,13 @@ namespace SimpleHttpClient
             //CRLF for header end
             await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
 
+            if (request.Content != null)
+            {
+                //TODO as stream
+                await WriteStringAsync(await request.Content.ReadAsStringAsync()).ConfigureAwait(false);
+            }
             var dc = Encoding.UTF8.GetString(_writeBuffer);
+
             await FlushAsync().ConfigureAwait(false);
 
             var response = new HttpResponseMessage() { RequestMessage = request, Content = new HttpConnectionResponseContent() };
