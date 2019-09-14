@@ -63,25 +63,25 @@ namespace SimpleHttpClient
             //protocol
             await WriteBytesAsync(s_spaceHttp11NewlineAsciiBytes).ConfigureAwait(false);
             //header
-            await WriteStringAsync($"Host:{request.RequestUri.IdnHost}\r\n").ConfigureAwait(false);
+            await WriteStringAsync($"Host: {request.RequestUri.IdnHost}\r\n").ConfigureAwait(false);
             await WriteHeaderAsync(request.Headers);
 
             if (request.Content == null)
             {
                 await WriteBytesAsync(s_contentLength0NewlineAsciiBytes).ConfigureAwait(false);
+                await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
             }
             else
             {
+                var body = await request.Content.ReadAsStringAsync();
                 await WriteHeaderAsync(request.Content.Headers).ConfigureAwait(false);
-            }
-            //CRLF for header end
-            await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
+                await WriteStringAsync($"Content-Length: {body.Length}\r\n").ConfigureAwait(false);
+                await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
 
-            if (request.Content != null)
-            {
-                //TODO as stream
-                await WriteStringAsync(await request.Content.ReadAsStringAsync()).ConfigureAwait(false);
+                //TODO
+                await WriteStringAsync(body).ConfigureAwait(false);
             }
+
             var dc = Encoding.UTF8.GetString(_writeBuffer);
 
             await FlushAsync().ConfigureAwait(false);

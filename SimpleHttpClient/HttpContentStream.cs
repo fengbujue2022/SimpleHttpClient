@@ -51,6 +51,11 @@ namespace SimpleHttpClient
                 return 0;
             }
 
+            if ((ulong)buffer.Length > _contentBytesRemaining)
+            {
+                buffer = buffer.Slice(0, (int)_contentBytesRemaining);
+            }
+
             int bytesRead = _connection.Read(buffer);
             if (bytesRead <= 0)
             {
@@ -59,11 +64,13 @@ namespace SimpleHttpClient
 
             _contentBytesRemaining -= (ulong)bytesRead;
 
-            if ((ulong)buffer.Length > _contentBytesRemaining)
+            if (_contentBytesRemaining == 0)
             {
-                buffer = buffer.Slice(0, (int)_contentBytesRemaining);
+                _connection.CompleteResponse();
+                _connection = null;
             }
-            return 0;
+
+            return bytesRead;
         }
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken)
