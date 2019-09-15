@@ -36,7 +36,17 @@ namespace SimpleHttpClient
         private int _readOffset;
         private int _readLength;
 
+        internal int _allowedReadLineBytes;
+
         private bool disposed;
+
+        internal int ReadBufferSize => _readBuffer.Length;
+        internal ReadOnlyMemory<byte> RemainingBuffer => new ReadOnlyMemory<byte>(_readBuffer, _readOffset, _readLength - _readOffset);
+
+        internal void ConsumeFromRemainingBuffer(int bytesToConsume)
+        {
+            _readOffset += bytesToConsume;
+        }
 
         public HttpConnection(
             HttpConnectionPool pool,
@@ -137,7 +147,11 @@ namespace SimpleHttpClient
                     responseStream = memoryStream;
                 }
                 */
-                responseStream = new HttpConnectionStream(this, (ulong)response.Content.Headers.ContentLength.Value);
+                responseStream = new ContentLengthReadStream(this, (ulong)response.Content.Headers.ContentLength.Value);
+            }
+            else if (response.Headers.TransferEncodingChunked == true)
+            {
+                responseStream = new ChunkedEncodingReadStream(this, response);
             }
             else
             {
@@ -145,7 +159,6 @@ namespace SimpleHttpClient
                 CompleteResponse();
             }
             ((HttpConnectionResponseContent)response.Content).SetStream(responseStream);
-
 
             return response;
         }
@@ -343,7 +356,7 @@ namespace SimpleHttpClient
             return default(ValueTask);
         }
 
-        private async ValueTask<ArraySegment<byte>> ReadNextResponseHeaderLineAsync()
+        internal async ValueTask<ArraySegment<byte>> ReadNextResponseHeaderLineAsync()
         {
             while (true)
             {
@@ -364,7 +377,62 @@ namespace SimpleHttpClient
             }
         }
 
-        private async Task FillAsync()
+        internal bool TryReadNextLine(out ReadOnlySpan<byte> line)
+        {
+            var buffer = new ReadOnlySpan<byte>(_readBuffer, _readOffset, _readLength - _readOffset);
+            int length = buffer.IndexOf((byte)'\n');
+            if (length < 0)
+            {
+                if (_allowedReadLineBytes < buffer.Length)
+                {
+                    throw new HttpRequestException("net_http_response_headers_exceeded_length");
+                }
+
+                line = default(ReadOnlySpan<byte>);
+                return false;
+            }
+
+            int bytesConsumed = length + 1;
+            _readOffset += bytesConsumed;
+            _allowedReadLineBytes -= bytesConsumed;
+
+            line = buffer.Slice(0, length > 0 && buffer[length - 1] == '\r' ? length - 1 : length);
+            return true;
+        }
+
+        internal void Fill()
+        {
+            int remaining = _readLength - _readOffset;
+
+            if (remaining == 0)
+            {
+                _readOffset = _readLength = 0;
+            }
+            else if (_readOffset > 0)
+            {
+                Buffer.BlockCopy(_readBuffer, _readOffset, _readBuffer, 0, remaining);
+                _readOffset = 0;
+                _readLength = remaining;
+            }
+            else if (remaining == _readBuffer.Length)
+            {
+                var newReadBuffer = new byte[_readBuffer.Length * 2];
+                Buffer.BlockCopy(_readBuffer, 0, newReadBuffer, 0, remaining);
+                _readBuffer = newReadBuffer;
+                _readOffset = 0;
+                _readLength = remaining;
+            }
+
+            int bytesRead = _stream.Read(_readBuffer, _readLength, _readBuffer.Length - _readLength);
+            if (bytesRead == 0)
+            {
+                throw new IOException("net_http_invalid_response_premature_eof");
+            }
+
+            _readLength += bytesRead;
+        }
+
+        internal async Task FillAsync()
         {
             var remaining = _readLength - _readOffset;
 
@@ -581,7 +649,7 @@ namespace SimpleHttpClient
             }
         }
 
-        private static void ParseHeaderLine(Span<byte> line, HttpResponseMessage response)
+        internal static void ParseHeaderLine(ReadOnlySpan<byte> line, HttpResponseMessage response)
         {
             var pos = 0;
             while (line[pos] != (byte)':')

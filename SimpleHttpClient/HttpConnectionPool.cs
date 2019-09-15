@@ -30,6 +30,7 @@ namespace SimpleHttpClient
         private bool _disposed;
         private int _associatedConnectionCount;
         private int _maxConnections = 3;
+        internal TimeSpan _maxResponseDrainTime = TimeSpan.FromMinutes(10);
 
         private object SyncObj => _idleConnections;
 

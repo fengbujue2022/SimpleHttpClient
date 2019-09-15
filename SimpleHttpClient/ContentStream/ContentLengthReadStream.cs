@@ -7,41 +7,18 @@ using System.Threading.Tasks;
 
 namespace SimpleHttpClient
 {
-    internal class HttpConnectionStream : Stream
+    internal class ContentLengthReadStream : HttpContentReadStream
     {
         private ulong _contentBytesRemaining;
 
-        public override bool CanRead => true;
-
-        public override bool CanSeek => false;
-
-        public override bool CanWrite => false;
-
-        public override long Length => throw new NotImplementedException();
-
-        public override long Position { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-
-        private HttpConnection _connection;
-
-        public HttpConnectionStream(HttpConnection httpConnection, ulong contentLength)
+        public ContentLengthReadStream(HttpConnection connection, ulong contentLength):base(connection)
         {
-            _connection = httpConnection;
             _contentBytesRemaining = contentLength;
         }
 
         public override void Flush()
         {
             throw new NotImplementedException();
-        }
-
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            return this.Read(buffer.AsSpan(offset, count));
-        }
-
-        public  override Task<int> ReadAsync(byte[] buffer, int offset, int count,CancellationToken cancellationToken)
-        {
-            return this.ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
         }
 
         public override int Read(Span<byte> buffer)
@@ -170,21 +147,6 @@ namespace SimpleHttpClient
             _contentBytesRemaining = 0;
             _connection.CompleteResponse();
             _connection = null;
-        }
-
-        public override long Seek(long offset, SeekOrigin origin)
-        {
-            throw new NotImplementedException();
-        }
-
-        public override void SetLength(long value)
-        {
-            throw new NotImplementedException();
-        }
-
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            throw new NotImplementedException();
         }
 
         protected override void Dispose(bool disposing)
