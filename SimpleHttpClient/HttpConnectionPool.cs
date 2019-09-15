@@ -29,7 +29,7 @@ namespace SimpleHttpClient
 
         private bool _disposed;
         private int _associatedConnectionCount;
-        private int _maxConnections = 3;
+        private int _maxConnections = 100;
         internal TimeSpan _maxResponseDrainTime = TimeSpan.FromMinutes(10);
 
         private object SyncObj => _idleConnections;
@@ -56,8 +56,10 @@ namespace SimpleHttpClient
         {
             lock (SyncObj)
             {
+                bool receivedUnexpectedData = false;
                 if (HasWaiter())
                 {
+                    receivedUnexpectedData = connection.EnsureReadAheadAndPollRead();
                     if (TransferConnection(connection))//set connection result for waiting task
                     {
                         return;
@@ -65,7 +67,7 @@ namespace SimpleHttpClient
                 }
 
                 var list = _idleConnections;
-                if (!_disposed)
+                if (!receivedUnexpectedData&&!_disposed)
                     list.Add(new CachedConnection(connection));
             }
         }
@@ -88,6 +90,7 @@ namespace SimpleHttpClient
             {
                 return (connection, false, null);
             }
+            
 
             var (sokect, stream, failureResponse) = await ConnectAsync(kind, request, cancellationToken);
 

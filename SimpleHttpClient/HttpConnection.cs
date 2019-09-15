@@ -28,6 +28,7 @@ namespace SimpleHttpClient
         private readonly WeakReference<HttpConnection> _weakThisRef;
 
         private bool _connectionClose;
+        private ValueTask<int>? _readAheadTask;
 
         private readonly byte[] _writeBuffer;
         private int _writeOffset;
@@ -97,6 +98,7 @@ namespace SimpleHttpClient
             await FlushAsync().ConfigureAwait(false);
 
             var response = new HttpResponseMessage() { RequestMessage = request, Content = new HttpConnectionResponseContent() };
+            await FillAsync().ConfigureAwait(false);
             ParseStatusLine(await ReadNextResponseHeaderLineAsync().ConfigureAwait(false), response);
 
             //parse herader
@@ -166,6 +168,23 @@ namespace SimpleHttpClient
         public bool PollRead()
         {
             return _socket.Poll(0, SelectMode.SelectRead);
+        }
+
+        public bool EnsureReadAheadAndPollRead()
+        {
+            try
+            {
+                if (_readAheadTask == null)
+                {
+                    _readAheadTask = _stream.ReadAsync(new Memory<byte>(_readBuffer));
+                }
+            }
+            catch (Exception error)
+            {
+                _readAheadTask = new ValueTask<int>(0);
+            }
+
+            return _readAheadTask.Value.IsCompleted; 
         }
 
         internal CancellationTokenRegistration RegisterCancellation(CancellationToken cancellationToken)
