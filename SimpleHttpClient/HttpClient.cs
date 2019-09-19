@@ -14,7 +14,8 @@ namespace SimpleHttpClient
         private CancellationTokenSource _pendingRequestsCts;
         private volatile bool _disposed;
 
-        public TimeSpan TimeOut { get; set; } = TimeSpan.FromSeconds(100);
+        public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(100);
+        private static readonly TimeSpan s_infiniteTimeout = System.Threading.Timeout.InfiniteTimeSpan;
 
         public HttpClient()
             : this(new HttpClientHandler())
@@ -33,7 +34,7 @@ namespace SimpleHttpClient
         }
 
 
-        public  Task<HttpResponseMessage> SendAsync(HttpRequestMessage request)
+        public Task<HttpResponseMessage> SendAsync(HttpRequestMessage request)
         {
             return SendAsync(request, CancellationToken.None);
         }
@@ -43,11 +44,15 @@ namespace SimpleHttpClient
             CancellationTokenSource cts;
 
             bool disposeCts;
-            if (cancellationToken.CanBeCanceled)
+            var hasTimeout = this.Timeout != s_infiniteTimeout;
+            if (hasTimeout || cancellationToken.CanBeCanceled)
             {
                 disposeCts = true;
                 cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _pendingRequestsCts.Token);
-                cts.CancelAfter(TimeOut);
+                if (hasTimeout)
+                {
+                    cts.CancelAfter(Timeout);
+                }
             }
             else
             {

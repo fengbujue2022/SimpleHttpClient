@@ -25,7 +25,7 @@ namespace SimpleHttpClient
             using (cancellationToken.Register(s => ((TaskCompletionSourceWithCancellation<T>)s).OnCancellation(), this))
             {
                 var connection = await Task.ConfigureAwait(false);
-                Console.WriteLine("The time has come, connection was to return to pools");
+                Console.WriteLine($"The time has come! {((HttpConnection)(object)connection).Id}");
                 return connection;
             }
         }

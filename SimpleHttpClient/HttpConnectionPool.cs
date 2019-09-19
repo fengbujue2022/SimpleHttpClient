@@ -44,7 +44,6 @@ namespace SimpleHttpClient
             _idleConnections = new List<CachedConnection>();
         }
 
-
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var (connection, isNewConnection, failureResponse) = await GetConnectionAsync(_kind, request, cancellationToken);
@@ -88,14 +87,15 @@ namespace SimpleHttpClient
             var connection = await GetOrReserveHttpConnectionAsync(cancellationToken);
             if (connection != null)
             {
+                Console.WriteLine($"get connection via pool {connection.Id}");
                 return (connection, false, null);
             }
-            
 
             var (sokect, stream, failureResponse) = await ConnectAsync(kind, request, cancellationToken);
 
             connection = ConstructHttpConnection(sokect, stream);
 
+            Console.WriteLine($"create new connection {connection.Id}");
             return (connection, true, null);
         }
 

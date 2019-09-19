@@ -27,8 +27,11 @@ namespace SimpleHttpClient
         internal readonly HttpConnectionPool _pool;
         private readonly WeakReference<HttpConnection> _weakThisRef;
 
+        public readonly Guid Id = Guid.NewGuid();
+
         private bool _connectionClose;
         private ValueTask<int>? _readAheadTask;
+        private int _readAheadTaskLock = 0; // 0 == free, 1 == held
 
         private readonly byte[] _writeBuffer;
         private int _writeOffset;
@@ -49,6 +52,21 @@ namespace SimpleHttpClient
             _readOffset += bytesToConsume;
         }
 
+        private ValueTask<int>? ConsumeReadAheadTask()
+        {
+            if (Interlocked.CompareExchange(ref _readAheadTaskLock, 1, 0) == 0)
+            {
+                ValueTask<int>? t = _readAheadTask;
+                _readAheadTask = null;
+                Volatile.Write(ref _readAheadTaskLock, 0);
+                return t;
+            }
+
+            // We couldn't get the lock, which means it must already be held
+            // by someone else who will consume the task.
+            return null;
+        }
+
         public HttpConnection(
             HttpConnectionPool pool,
             Socket socket,
@@ -64,6 +82,7 @@ namespace SimpleHttpClient
 
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            CancellationTokenRegistration cancellationRegistration = RegisterCancellation(cancellationToken);
             //write raw request into stream(NetworkStream)
             //method
             await WriteStringAsync(request.Method.Method).ConfigureAwait(false);
@@ -93,12 +112,23 @@ namespace SimpleHttpClient
                 await WriteStringAsync(body).ConfigureAwait(false);
             }
 
-            var dc = Encoding.UTF8.GetString(_writeBuffer);
-
             await FlushAsync().ConfigureAwait(false);
 
+            var t = ConsumeReadAheadTask();
+            if (t != null)
+            {
+                int bytesRead = await t.GetValueOrDefault().ConfigureAwait(false);
+
+                if (bytesRead == 0)
+                {
+                    throw new IOException("net_http_invalid_response_premature_eof");
+                }
+
+                _readOffset = 0;
+                _readLength = bytesRead;
+            }
+
             var response = new HttpResponseMessage() { RequestMessage = request, Content = new HttpConnectionResponseContent() };
-            await FillAsync().ConfigureAwait(false);
             ParseStatusLine(await ReadNextResponseHeaderLineAsync().ConfigureAwait(false), response);
 
             //parse herader
@@ -118,37 +148,6 @@ namespace SimpleHttpClient
             Stream responseStream = null;
             if (response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength > 0)
             {
-                //TODO : temporary solution
-                //out of memory warning!! 还好我有16G内存 妈妈不用担心
-                /*
-                var bufferSize = 16023;
-                var length = response.Content.Headers.ContentLength.Value;
-                var count = 0;
-                var list = new List<byte>();
-
-                while (count < length)
-                {
-                    byte[] buffer;
-                    if (count + bufferSize > length)
-                    {
-                        buffer = new byte[length - count];
-                    }
-                    else
-                    {
-                        buffer = new byte[bufferSize];
-                    }
-
-                    var currentCount = await ReadAsync(buffer);
-                    count += currentCount;
-                    list.AddRange(buffer.Take(currentCount));
-                }
-
-                if (count > 0)
-                {
-                    var memoryStream = new MemoryStream(list.ToArray(), 0, list.Count);
-                    responseStream = memoryStream;
-                }
-                */
                 responseStream = new ContentLengthReadStream(this, (ulong)response.Content.Headers.ContentLength.Value);
             }
             else if (response.Headers.TransferEncodingChunked == true)
@@ -194,6 +193,7 @@ namespace SimpleHttpClient
                 var weakThisRef = (WeakReference<HttpConnection>)s;
                 if (weakThisRef.TryGetTarget(out HttpConnection strongThisRef))
                 {
+                    Console.WriteLine("dispose cause by task cancel");
                     strongThisRef.Dispose();
                 }
             }, _weakThisRef);
@@ -217,6 +217,7 @@ namespace SimpleHttpClient
             }
             else
             {
+                Console.WriteLine($"connection has return to pool {this.Id}");
                 _pool.ReturnConnection(this);
             }
         }
@@ -461,6 +462,7 @@ namespace SimpleHttpClient
             }
             else if (_readOffset > 0)//merge unread buffer to new buffer
             {
+               
                 Buffer.BlockCopy(_readBuffer, _readOffset, _readBuffer, 0, remaining);
                 _readOffset = 0;
                 _readLength = remaining;

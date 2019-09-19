@@ -82,12 +82,13 @@ namespace Test
         {
             //https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg
             var simpleClient = SimpleHttpClient.HttpClientFactory.Create(new HeaderValueHandler());
-            var response = await simpleClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, "https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg"));
-            //var d = await response.Content.ReadAsStringAsync();
-            using (var s = File.Open($@"D:\{"63771031_p0_master1200.jpg"}", FileMode.OpenOrCreate))
+            Parallel.ForEach(Enumerable.Range(1, 500), async (index) =>
             {
-                await response.Content.CopyToAsync(s);
-            }
+                Task.Run(async () =>
+                {
+                    var r = await simpleClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, "https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg"));
+                }).Wait();
+            });
         }
 
         private static Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, HttpMessageInvoker httpMessageInvoker)

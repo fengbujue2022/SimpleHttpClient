@@ -7,7 +7,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimpleHttpClient", "SimpleH
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Test", "Test\Test.csproj", "{9972BB9B-C55F-4D6E-8788-2C75AC730FA6}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsoleTest", "ConsoleTest\ConsoleTest.csproj", "{25CC39A7-A61A-46AA-AD45-FDEA2EBDA286}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsoleApp1", "ConsoleApp1\ConsoleApp1.csproj", "{8112BC48-336F-4A31-8736-1FF4F799DB33}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -23,10 +23,10 @@ Global
 		{9972BB9B-C55F-4D6E-8788-2C75AC730FA6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9972BB9B-C55F-4D6E-8788-2C75AC730FA6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9972BB9B-C55F-4D6E-8788-2C75AC730FA6}.Release|Any CPU.Build.0 = Release|Any CPU
-		{25CC39A7-A61A-46AA-AD45-FDEA2EBDA286}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{25CC39A7-A61A-46AA-AD45-FDEA2EBDA286}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{25CC39A7-A61A-46AA-AD45-FDEA2EBDA286}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{25CC39A7-A61A-46AA-AD45-FDEA2EBDA286}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8112BC48-336F-4A31-8736-1FF4F799DB33}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8112BC48-336F-4A31-8736-1FF4F799DB33}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8112BC48-336F-4A31-8736-1FF4F799DB33}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8112BC48-336F-4A31-8736-1FF4F799DB33}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
