@@ -62,8 +62,6 @@ namespace SimpleHttpClient
                 return t;
             }
 
-            // We couldn't get the lock, which means it must already be held
-            // by someone else who will consume the task.
             return null;
         }
 
@@ -145,6 +143,9 @@ namespace SimpleHttpClient
                 _connectionClose = true;
             }
 
+            cancellationRegistration.Dispose();
+            cancellationToken.ThrowIfCancellationRequested();
+
             Stream responseStream = null;
             if (response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength > 0)
             {
@@ -183,7 +184,7 @@ namespace SimpleHttpClient
                 _readAheadTask = new ValueTask<int>(0);
             }
 
-            return _readAheadTask.Value.IsCompleted; 
+            return _readAheadTask.Value.IsCompleted;
         }
 
         internal CancellationTokenRegistration RegisterCancellation(CancellationToken cancellationToken)
@@ -193,7 +194,6 @@ namespace SimpleHttpClient
                 var weakThisRef = (WeakReference<HttpConnection>)s;
                 if (weakThisRef.TryGetTarget(out HttpConnection strongThisRef))
                 {
-                    Console.WriteLine("dispose cause by task cancel");
                     strongThisRef.Dispose();
                 }
             }, _weakThisRef);
@@ -217,7 +217,6 @@ namespace SimpleHttpClient
             }
             else
             {
-                Console.WriteLine($"connection has return to pool {this.Id}");
                 _pool.ReturnConnection(this);
             }
         }

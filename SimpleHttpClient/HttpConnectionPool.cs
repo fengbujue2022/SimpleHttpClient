@@ -29,7 +29,6 @@ namespace SimpleHttpClient
 
         private bool _disposed;
         private int _associatedConnectionCount;
-        private int _maxConnections = 100;
         internal TimeSpan _maxResponseDrainTime = TimeSpan.FromMinutes(10);
 
         private object SyncObj => _idleConnections;
@@ -87,7 +86,6 @@ namespace SimpleHttpClient
             var connection = await GetOrReserveHttpConnectionAsync(cancellationToken);
             if (connection != null)
             {
-                Console.WriteLine($"get connection via pool {connection.Id}");
                 return (connection, false, null);
             }
 
@@ -95,7 +93,6 @@ namespace SimpleHttpClient
 
             connection = ConstructHttpConnection(sokect, stream);
 
-            Console.WriteLine($"create new connection {connection.Id}");
             return (connection, true, null);
         }
 
