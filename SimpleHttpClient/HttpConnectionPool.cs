@@ -29,6 +29,7 @@ namespace SimpleHttpClient
 
         private bool _disposed;
         private int _associatedConnectionCount;
+        private int _maxConnections = 100;
         internal TimeSpan _maxResponseDrainTime = TimeSpan.FromMinutes(10);
 
         private object SyncObj => _idleConnections;
@@ -45,9 +46,19 @@ namespace SimpleHttpClient
 
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            var (connection, isNewConnection, failureResponse) = await GetConnectionAsync(_kind, request, cancellationToken);
-            var res = await connection.SendAsync(request, cancellationToken);
-            return res;
+            while (true)
+            {
+                var (connection, isNewConnection, failureResponse) = await GetConnectionAsync(_kind, request, cancellationToken);
+                var id = connection.Id;
+                try
+                {
+                    return await connection.SendAsync(request, cancellationToken);
+                }
+                catch (HttpRequestException e) when (!isNewConnection)
+                {
+                    Console.WriteLine($"retry {id}");
+                }
+            }
         }
 
         public void ReturnConnection(HttpConnection connection)
@@ -83,15 +94,16 @@ namespace SimpleHttpClient
         private async ValueTask<(HttpConnection connection, bool isNewConnection, HttpResponseMessage failureResponse)>
             GetConnectionAsync(HttpConnectionKind kind, HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            /*
             var connection = await GetOrReserveHttpConnectionAsync(cancellationToken);
             if (connection != null)
             {
                 return (connection, false, null);
             }
-
+            */
             var (sokect, stream, failureResponse) = await ConnectAsync(kind, request, cancellationToken);
 
-            connection = ConstructHttpConnection(sokect, stream);
+           var connection = ConstructHttpConnection(sokect, stream);
 
             return (connection, true, null);
         }

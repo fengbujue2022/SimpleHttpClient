@@ -80,89 +80,110 @@ namespace SimpleHttpClient
 
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+
             CancellationTokenRegistration cancellationRegistration = RegisterCancellation(cancellationToken);
-            //write raw request into stream(NetworkStream)
-            //method
-            await WriteStringAsync(request.Method.Method).ConfigureAwait(false);
-            //blank space
-            await WriteByteAsync((byte)' ').ConfigureAwait(false);
-            //host and querystring
-            await WriteStringAsync(request.RequestUri.AbsoluteUri).ConfigureAwait(false);
-            //protocol
-            await WriteBytesAsync(s_spaceHttp11NewlineAsciiBytes).ConfigureAwait(false);
-            //header
-            await WriteStringAsync($"Host: {request.RequestUri.IdnHost}\r\n").ConfigureAwait(false);
-            await WriteHeaderAsync(request.Headers);
-
-            if (request.Content == null)
+            try
             {
-                await WriteBytesAsync(s_contentLength0NewlineAsciiBytes).ConfigureAwait(false);
-                await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
-            }
-            else
-            {
-                var body = await request.Content.ReadAsStringAsync();
-                await WriteHeaderAsync(request.Content.Headers).ConfigureAwait(false);
-                await WriteStringAsync($"Content-Length: {body.Length}\r\n").ConfigureAwait(false);
-                await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
+                var _canRetry = true;
 
-                //TODO
-                await WriteStringAsync(body).ConfigureAwait(false);
-            }
+                //write raw request into stream(NetworkStream)
+                //method
+                await WriteStringAsync(request.Method.Method).ConfigureAwait(false);
+                //blank space
+                await WriteByteAsync((byte)' ').ConfigureAwait(false);
+                //host and querystring
+                await WriteStringAsync(request.RequestUri.AbsoluteUri).ConfigureAwait(false);
+                //protocol
+                await WriteBytesAsync(s_spaceHttp11NewlineAsciiBytes).ConfigureAwait(false);
+                //header
+                await WriteStringAsync($"Host: {request.RequestUri.IdnHost}\r\n").ConfigureAwait(false);
+                await WriteHeaderAsync(request.Headers);
 
-            await FlushAsync().ConfigureAwait(false);
-
-            var t = ConsumeReadAheadTask();
-            if (t != null)
-            {
-                int bytesRead = await t.GetValueOrDefault().ConfigureAwait(false);
-
-                if (bytesRead == 0)
+                if (request.Content == null)
                 {
-                    throw new IOException("net_http_invalid_response_premature_eof");
+                    await WriteBytesAsync(s_contentLength0NewlineAsciiBytes).ConfigureAwait(false);
+                    await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
+                }
+                else
+                {
+                    var body = await request.Content.ReadAsStringAsync();
+                    await WriteHeaderAsync(request.Content.Headers).ConfigureAwait(false);
+                    await WriteStringAsync($"Content-Length: {body.Length}\r\n").ConfigureAwait(false);
+                    await WriteTwoBytesAsync((byte)'\r', (byte)'\n').ConfigureAwait(false);
+
+                    //TODO
+                    await WriteStringAsync(body).ConfigureAwait(false);
                 }
 
-                _readOffset = 0;
-                _readLength = bytesRead;
-            }
+                await FlushAsync().ConfigureAwait(false);
 
-            var response = new HttpResponseMessage() { RequestMessage = request, Content = new HttpConnectionResponseContent() };
-            ParseStatusLine(await ReadNextResponseHeaderLineAsync().ConfigureAwait(false), response);
+                var t = ConsumeReadAheadTask();
+                if (t != null)
+                {
+                    int bytesRead = await t.GetValueOrDefault().ConfigureAwait(false);
 
-            //parse herader
-            while (true)
-            {
-                var headerLine = await ReadNextResponseHeaderLineAsync().ConfigureAwait(false);
-                if (headerLine.Count == 0)
-                    break;
+                    if (bytesRead == 0)
+                    {
+                        throw new IOException("net_http_invalid_response_premature_eof");
+                    }
 
-                ParseHeaderLine(headerLine, response);
-            }
-            if (response.Headers.ConnectionClose.GetValueOrDefault())
-            {
-                _connectionClose = true;
-            }
+                    _readOffset = 0;
+                    _readLength = bytesRead;
+                }
 
-            cancellationRegistration.Dispose();
-            cancellationToken.ThrowIfCancellationRequested();
+                _canRetry = false;
 
-            Stream responseStream = null;
-            if (response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength > 0)
-            {
-                responseStream = new ContentLengthReadStream(this, (ulong)response.Content.Headers.ContentLength.Value);
-            }
-            else if (response.Headers.TransferEncodingChunked == true)
-            {
-                responseStream = new ChunkedEncodingReadStream(this, response);
-            }
-            else
-            {
-                responseStream = new MemoryStream();//empty
-                CompleteResponse();
-            }
+                var response = new HttpResponseMessage() { RequestMessage = request, Content = new HttpConnectionResponseContent() };
+                ParseStatusLine(await ReadNextResponseHeaderLineAsync().ConfigureAwait(false), response);
+
+                //parse herader
+                while (true)
+                {
+                    var headerLine = await ReadNextResponseHeaderLineAsync().ConfigureAwait(false);
+                    if (headerLine.Count == 0)
+                        break;
+
+                    ParseHeaderLine(headerLine, response);
+                }
+                if (response.Headers.ConnectionClose.GetValueOrDefault())
+                {
+                    _connectionClose = true;
+                }
+
+                cancellationRegistration.Dispose();
+                cancellationToken.ThrowIfCancellationRequested();
+
+                Stream responseStream = null;
+                if (response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength > 0)
+                {
+                    responseStream = new ContentLengthReadStream(this, (ulong)response.Content.Headers.ContentLength.Value);
+                }
+                else if (response.Headers.TransferEncodingChunked == true)
+                {
+                    responseStream = new ChunkedEncodingReadStream(this, response);
+                }
+                else
+                {
+                    responseStream = new MemoryStream();//empty
+                    CompleteResponse();
+                }
             ((HttpConnectionResponseContent)response.Content).SetStream(responseStream);
 
-            return response;
+                return response;
+            }
+            catch (Exception error)
+            {
+                cancellationRegistration.Dispose();
+                Dispose();
+                if (error is IOException ioe)
+                {
+                    throw new HttpRequestException("net_http_client_execution_error");
+                }
+                else
+                {
+                    throw;
+                }
+            }
         }
 
         public bool PollRead()
@@ -461,7 +482,7 @@ namespace SimpleHttpClient
             }
             else if (_readOffset > 0)//merge unread buffer to new buffer
             {
-               
+                var d = Encoding.UTF8.GetString(this._readBuffer);
                 Buffer.BlockCopy(_readBuffer, _readOffset, _readBuffer, 0, remaining);
                 _readOffset = 0;
                 _readLength = remaining;
@@ -475,6 +496,10 @@ namespace SimpleHttpClient
                 _readLength = remaining;
             }
             var bytesRead = await _stream.ReadAsync(new Memory<byte>(_readBuffer, remaining, _readBuffer.Length - _readLength));
+            if (bytesRead == 0)
+            {
+                throw new IOException("net_http_invalid_response_premature_eof");
+            }
             _readLength += bytesRead;
         }
 
