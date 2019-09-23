@@ -80,7 +80,7 @@ namespace SimpleHttpClient
 
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-
+            Console.WriteLine("send " + Id);
             CancellationTokenRegistration cancellationRegistration = RegisterCancellation(cancellationToken);
             try
             {
@@ -133,18 +133,21 @@ namespace SimpleHttpClient
 
                 _canRetry = false;
 
+                _allowedReadLineBytes = (int)Math.Min(int.MaxValue, 64 * 1024L);
+
                 var response = new HttpResponseMessage() { RequestMessage = request, Content = new HttpConnectionResponseContent() };
                 ParseStatusLine(await ReadNextResponseHeaderLineAsync().ConfigureAwait(false), response);
 
                 //parse herader
                 while (true)
                 {
-                    var headerLine = await ReadNextResponseHeaderLineAsync().ConfigureAwait(false);
+                    var headerLine = await ReadNextResponseHeaderLineAsync(true).ConfigureAwait(false);
                     if (headerLine.Count == 0)
                         break;
 
                     ParseHeaderLine(headerLine, response);
                 }
+
                 if (response.Headers.ConnectionClose.GetValueOrDefault())
                 {
                     _connectionClose = true;
@@ -154,6 +157,12 @@ namespace SimpleHttpClient
                 cancellationToken.ThrowIfCancellationRequested();
 
                 Stream responseStream = null;
+                if (response.StatusCode == HttpStatusCode.NotModified)
+                {
+                    responseStream = new MemoryStream();//empty
+                    CompleteResponse();
+                }
+
                 if (response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength > 0)
                 {
                     responseStream = new ContentLengthReadStream(this, (ulong)response.Content.Headers.ContentLength.Value);
@@ -396,24 +405,78 @@ namespace SimpleHttpClient
             return default(ValueTask);
         }
 
-        internal async ValueTask<ArraySegment<byte>> ReadNextResponseHeaderLineAsync()
+        internal async ValueTask<ArraySegment<byte>> ReadNextResponseHeaderLineAsync(bool foldedHeadersAllowed = false)
         {
+            int previouslyScannedBytes = 0;
             while (true)
             {
-                int lfIndex = Array.IndexOf(_readBuffer, (byte)'\n', _readOffset);
-                if (lfIndex >= 0)
+                int scanOffset = _readOffset + previouslyScannedBytes;
+                int lfIndex = Array.IndexOf(_readBuffer, (byte)'\n', scanOffset, _readLength - scanOffset);
+                if (lfIndex < 0)
                 {
-                    if (_readBuffer[lfIndex - 1] == (byte)'\r')
-                    {
-                        var segments = new ArraySegment<byte>(_readBuffer, _readOffset, (lfIndex - 1) - _readOffset);
-                        _readOffset = lfIndex + 1;
-                        return segments;
-                    }
+                    previouslyScannedBytes = _readLength - _readOffset;
+                    _allowedReadLineBytes -= _readLength - scanOffset;
+                    ThrowIfExceededAllowedReadLineBytes();
+                    await FillAsync().ConfigureAwait(false);
                 }
                 else
                 {
-                    await FillAsync().ConfigureAwait(false);
+                    int startIndex = _readOffset;
+                    int length = lfIndex - startIndex;
+                    if (lfIndex > 0 && _readBuffer[lfIndex - 1] == '\r')
+                    {
+                        length--;
+                    }
+
+                    if (foldedHeadersAllowed && length > 0)
+                    {
+                        if (lfIndex + 1 == _readLength)
+                        {
+                            int backPos = _readBuffer[lfIndex - 1] == '\r' ? lfIndex - 2 : lfIndex - 1;
+                            previouslyScannedBytes = backPos - _readOffset;
+                            _allowedReadLineBytes -= backPos - scanOffset;
+                            ThrowIfExceededAllowedReadLineBytes();
+                            await FillAsync().ConfigureAwait(false);
+                            continue;
+                        }
+
+                        char nextChar = (char)_readBuffer[lfIndex + 1];
+                        if (nextChar == ' ' || nextChar == '\t')
+                        {
+
+                            if (Array.IndexOf(_readBuffer, (byte)':', _readOffset, lfIndex - _readOffset) == -1)
+                            {
+                                throw new HttpRequestException("net_http_invalid_response_header_folder");
+                            }
+
+                            _readBuffer[lfIndex] = (byte)' ';
+                            if (_readBuffer[lfIndex - 1] == '\r')
+                            {
+                                _readBuffer[lfIndex - 1] = (byte)' ';
+                            }
+
+                            previouslyScannedBytes = (lfIndex + 1 - _readOffset);
+                            _allowedReadLineBytes -= (lfIndex + 1 - scanOffset);
+                            ThrowIfExceededAllowedReadLineBytes();
+                            continue;
+                        }
+
+                    }
+
+                    _allowedReadLineBytes -= lfIndex + 1 - scanOffset;
+                    ThrowIfExceededAllowedReadLineBytes();
+                    _readOffset = lfIndex + 1;
+
+                    return new ArraySegment<byte>(_readBuffer, startIndex, length);
                 }
+            }
+        }
+
+        private void ThrowIfExceededAllowedReadLineBytes()
+        {
+            if (_allowedReadLineBytes < 0)
+            {
+                throw new HttpRequestException("header length不能大于64kb");
             }
         }
 

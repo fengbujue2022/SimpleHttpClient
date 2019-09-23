@@ -94,16 +94,15 @@ namespace SimpleHttpClient
         private async ValueTask<(HttpConnection connection, bool isNewConnection, HttpResponseMessage failureResponse)>
             GetConnectionAsync(HttpConnectionKind kind, HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            /*
             var connection = await GetOrReserveHttpConnectionAsync(cancellationToken);
             if (connection != null)
             {
                 return (connection, false, null);
             }
-            */
+            
             var (sokect, stream, failureResponse) = await ConnectAsync(kind, request, cancellationToken);
 
-           var connection = ConstructHttpConnection(sokect, stream);
+            connection = ConstructHttpConnection(sokect, stream);
 
             return (connection, true, null);
         }
