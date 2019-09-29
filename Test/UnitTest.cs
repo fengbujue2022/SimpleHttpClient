@@ -21,7 +21,7 @@ namespace Test
             var response = await simpleClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, "https://www.baidu.com"));
             Assert.IsTrue(response.RequestMessage.Headers.Contains("User-Agent"));
             Assert.AreEqual(response.RequestMessage.Headers.UserAgent.Count, 1);
-            Assert.AreEqual(response.RequestMessage.Headers.UserAgent.First().ToString(), "JOJO");
+            Assert.AreEqual(response.RequestMessage.Headers.UserAgent.First().ToString(), "PixivIOSApp/5.8.0");
         }
 
         [Test]
@@ -77,27 +77,10 @@ namespace Test
         }
 
 
-        [Test]
-        public async Task Startup()
-        {
-            //https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg
-            var simpleClient = SimpleHttpClient.HttpClientFactory.Create(new HeaderValueHandler());
-            Parallel.ForEach(Enumerable.Range(1, 500), async (index) =>
-            {
-                Task.Run(async () =>
-                {
-                    var r = await simpleClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, "https://i.pximg.net/img-master/img/2017/07/08/22/38/22/63771031_p0_master1200.jpg"));
-                }).Wait();
-            });
-        }
-
         private static Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, HttpMessageInvoker httpMessageInvoker)
         {
             return httpMessageInvoker.SendAsync(request, CancellationToken.None);
         }
-
-
-
 
         private class HeaderValueHandler : DelegatingHandler
         {
