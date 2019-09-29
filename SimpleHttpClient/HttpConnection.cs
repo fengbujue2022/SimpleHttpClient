@@ -80,7 +80,6 @@ namespace SimpleHttpClient
 
         public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Console.WriteLine("send " + Id);
             CancellationTokenRegistration cancellationRegistration = RegisterCancellation(cancellationToken);
             try
             {
@@ -176,7 +175,7 @@ namespace SimpleHttpClient
                     responseStream = new MemoryStream();//empty
                     CompleteResponse();
                 }
-            ((HttpConnectionResponseContent)response.Content).SetStream(responseStream);
+                ((HttpConnectionResponseContent)response.Content).SetStream(responseStream);
 
                 return response;
             }

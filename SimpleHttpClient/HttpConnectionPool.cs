@@ -56,7 +56,7 @@ namespace SimpleHttpClient
                 }
                 catch (HttpRequestException e) when (!isNewConnection)
                 {
-                    Console.WriteLine($"retry {id}");
+                    
                 }
             }
         }
