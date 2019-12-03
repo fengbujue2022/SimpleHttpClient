@@ -44,12 +44,12 @@ namespace SimpleHttpClient
             {
                 if (handler == null)
                 {
-                    throw new ArgumentNullException($"{nameof(handler)}innerHandler can be null");
+                    throw new ArgumentNullException($"{nameof(handler)} can be null");
                 }
 
                 if (handler.InnerHandler != null)
                 {
-                    throw new ArgumentNullException($"{nameof(handler)}innerHandler can be null");
+                    throw new ArgumentNullException($"{nameof(handler.InnerHandler)} can be null");
                 }
 
                 handler.InnerHandler = pipeline;

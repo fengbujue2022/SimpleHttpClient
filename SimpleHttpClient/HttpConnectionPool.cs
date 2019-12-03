@@ -56,7 +56,7 @@ namespace SimpleHttpClient
                 }
                 catch (HttpRequestException e) when (!isNewConnection)
                 {
-                    
+
                 }
             }
         }
@@ -76,7 +76,7 @@ namespace SimpleHttpClient
                 }
 
                 var list = _idleConnections;
-                if (!receivedUnexpectedData&&!_disposed)
+                if (!receivedUnexpectedData && !_disposed)
                     list.Add(new CachedConnection(connection));
             }
         }
@@ -99,7 +99,7 @@ namespace SimpleHttpClient
             {
                 return (connection, false, null);
             }
-            
+
             var (sokect, stream, failureResponse) = await ConnectAsync(kind, request, cancellationToken);
 
             connection = ConstructHttpConnection(sokect, stream);
@@ -152,11 +152,15 @@ namespace SimpleHttpClient
                 var sslOptions = new SslClientAuthenticationOptions();
                 sslOptions.TargetHost = _handler.EndPointProvider.GetHost(_sslHost);
                 sslOptions.EnabledSslProtocols = SslProtocols.Tls;
-                sslOptions.RemoteCertificateValidationCallback = (object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors) =>
-                 {
-                     //TODO
-                     return true;
-                 };
+                if (_handler.RemoteCertificateValidationCallback != null)
+                {
+                    sslOptions.RemoteCertificateValidationCallback = _handler.RemoteCertificateValidationCallback;
+                }
+                else
+                {
+                    sslOptions.RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => { return true; };
+                }
+                sslOptions.ClientCertificates = _handler.ClientCertificates;
                 SslStream sslStream = await EstablishSslConnectionAsync(sslOptions, request, stream, cancellationToken).ConfigureAwait(false);
                 stream = sslStream;
             }

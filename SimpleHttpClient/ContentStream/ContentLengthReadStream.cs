@@ -11,7 +11,7 @@ namespace SimpleHttpClient
     {
         private ulong _contentBytesRemaining;
 
-        public ContentLengthReadStream(HttpConnection connection, ulong contentLength):base(connection)
+        public ContentLengthReadStream(HttpConnection connection, ulong contentLength) : base(connection)
         {
             _contentBytesRemaining = contentLength;
         }
