@@ -11,57 +11,27 @@ using System.Threading.Tasks;
 
 namespace SimpleHttpClient
 {
-    public class HttpClientHandler : HttpMessageHandler
+    public class HttpClientHandler : HttpMessageHandlerWrapper
     {
-        private HttpConnectionPoolManager httpConnectionPoolManager;
-        private const string s_gzip = "gzip";
-        private const string s_deflate = "deflate";
-        private static readonly StringWithQualityHeaderValue s_gzipHeaderValue = new StringWithQualityHeaderValue(s_gzip);
-        private static readonly StringWithQualityHeaderValue s_deflateHeaderValue = new StringWithQualityHeaderValue(s_deflate);
+        private HttpMessageHandlerWrapper _handler;
 
-        public EndPointProvider EndPointProvider { get; set; } = new EndPointProvider();
-        public DecompressionMethods AutomaticDecompression { get; set; } = DecompressionMethods.None;
-        public X509CertificateCollection ClientCertificates { get; set; }
-        public RemoteCertificateValidationCallback RemoteCertificateValidationCallback { get; set; }
+        public HttpConnectionSettings Settings = new HttpConnectionSettings();
 
-        public HttpClientHandler()
+        private HttpMessageHandlerWrapper SetupHandlerChain()
         {
-            httpConnectionPoolManager = new HttpConnectionPoolManager();
+            var poolManager = new HttpConnectionPoolManager(Settings);
+            HttpMessageHandlerWrapper handler = new HttpConnectionHandler(poolManager);
+            if (Settings.AutomaticDecompression != DecompressionMethods.None)
+            {
+                handler = new DecompressionHandler(Settings.AutomaticDecompression, handler);
+            }
+            return handler;
         }
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            if (AutomaticDecompression == DecompressionMethods.GZip && !request.Headers.AcceptEncoding.Contains(s_gzipHeaderValue))
-            {
-                request.Headers.AcceptEncoding.Add(s_gzipHeaderValue);
-            }
-            if (AutomaticDecompression == DecompressionMethods.Deflate && !request.Headers.AcceptEncoding.Contains(s_deflateHeaderValue))
-            {
-                request.Headers.AcceptEncoding.Add(s_deflateHeaderValue);
-            }
-
-            var response = await httpConnectionPoolManager.SendAsync(this, request, cancellationToken);
-
-            ICollection<string> contentEncodings = response.Content.Headers.ContentEncoding;
-            if (contentEncodings.Count > 0)
-            {
-                string last = null;
-                foreach (string encoding in contentEncodings)
-                {
-                    last = encoding;
-                }
-
-                if (AutomaticDecompression == DecompressionMethods.GZip && last == s_gzip)
-                {
-                    response.Content = new GZipDecompressedContent(response.Content);
-                }
-                else if (AutomaticDecompression == DecompressionMethods.Deflate && last == s_deflate)
-                {
-                    response.Content = new DeflateDecompressedContent(response.Content);
-                }
-            }
-
-            return response;
+            _handler = _handler ?? SetupHandlerChain();
+            return _handler.VisitableSendAsync(request, cancellationToken);
         }
     }
 }

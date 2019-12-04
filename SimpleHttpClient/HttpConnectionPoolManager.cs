@@ -12,21 +12,24 @@ namespace SimpleHttpClient
     {
         private readonly ConcurrentDictionary<HttpConnectionKey, HttpConnectionPool> _pools;
 
+        internal readonly HttpConnectionSettings settings;
+
         private bool disposed;
         private object SyncObj => _pools;
 
-        public HttpConnectionPoolManager()
+        public HttpConnectionPoolManager(HttpConnectionSettings settings)
         {
             _pools = new ConcurrentDictionary<HttpConnectionKey, HttpConnectionPool>();
+            this.settings = settings;
         }
 
-        public Task<HttpResponseMessage> SendAsync(HttpClientHandler handler, HttpRequestMessage request, CancellationToken cancellationToken)
+        public Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var key = (HttpConnectionKey)request;
             HttpConnectionPool pool;
             while (!_pools.TryGetValue(key, out pool))
             {
-                _pools.TryAdd(key, new HttpConnectionPool(key.Kind, key.Host, key.SslHostName, key.Port, handler));
+                _pools.TryAdd(key, new HttpConnectionPool(key.Kind, key.Host, key.SslHostName, key.Port, this));
             }
             return pool.SendAsync(request, cancellationToken);
         }

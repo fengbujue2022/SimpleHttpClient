@@ -25,7 +25,7 @@ namespace SimpleHttpClient
         private readonly string _sslHost;
         private readonly string _host;
         private readonly int _port;
-        private readonly HttpClientHandler _handler;
+        private readonly HttpConnectionPoolManager _poolManager;
 
         private bool _disposed;
         private int _associatedConnectionCount;
@@ -34,13 +34,13 @@ namespace SimpleHttpClient
 
         private object SyncObj => _idleConnections;
 
-        public HttpConnectionPool(HttpConnectionKind kind, string host, string sslHost, int port, HttpClientHandler handler)
+        public HttpConnectionPool(HttpConnectionKind kind, string host, string sslHost, int port, HttpConnectionPoolManager poolManager)
         {
             _kind = kind;
             _host = host;
             _sslHost = sslHost;
             _port = port;
-            _handler = handler;
+            _poolManager = poolManager;
             _idleConnections = new List<CachedConnection>();
         }
 
@@ -150,17 +150,17 @@ namespace SimpleHttpClient
             if (kind == HttpConnectionKind.Https || kind == HttpConnectionKind.SslProxyTunnel)
             {
                 var sslOptions = new SslClientAuthenticationOptions();
-                sslOptions.TargetHost = _handler.EndPointProvider.GetHost(_sslHost);
+                sslOptions.TargetHost = _poolManager.settings.EndPointProvider.GetHost(_sslHost);
                 sslOptions.EnabledSslProtocols = SslProtocols.Tls;
-                if (_handler.RemoteCertificateValidationCallback != null)
+                if (_poolManager.settings.RemoteCertificateValidationCallback != null)
                 {
-                    sslOptions.RemoteCertificateValidationCallback = _handler.RemoteCertificateValidationCallback;
+                    sslOptions.RemoteCertificateValidationCallback = _poolManager.settings.RemoteCertificateValidationCallback;
                 }
                 else
                 {
                     sslOptions.RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => { return true; };
                 }
-                sslOptions.ClientCertificates = _handler.ClientCertificates;
+                sslOptions.ClientCertificates = _poolManager.settings.ClientCertificates;
                 SslStream sslStream = await EstablishSslConnectionAsync(sslOptions, request, stream, cancellationToken).ConfigureAwait(false);
                 stream = sslStream;
             }
@@ -197,7 +197,7 @@ namespace SimpleHttpClient
                 }
             };
 
-            saea.RemoteEndPoint = _handler.EndPointProvider.GetEndPoint(_host, _port);
+            saea.RemoteEndPoint = _poolManager.settings.EndPointProvider.GetEndPoint(_host, _port);
 
             if (Socket.ConnectAsync(SocketType.Stream, ProtocolType.Tcp, saea))
             {
