@@ -1,5 +1,5 @@
 # SimpleHttpClient
-For learn dotnet httpclient
+Simplely implementation for DotNetCore HttpClient
 # 说明
 (๑•ㅂ•́)و✧
 * 主要实现(搬运)了 :
