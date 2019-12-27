@@ -36,7 +36,7 @@ namespace SimpleHttpClient
                 request.Headers.AcceptEncoding.Add(s_deflateHeaderValue);
             }
 
-            var response =await  _innerHandler.VisitableSendAsync(request, cancellationToken);
+            var response = await _innerHandler.VisitableSendAsync(request, cancellationToken);
 
             ICollection<string> contentEncodings = response.Content.Headers.ContentEncoding;
             if (contentEncodings.Count > 0)

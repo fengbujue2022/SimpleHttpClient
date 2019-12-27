@@ -13,6 +13,7 @@ using System.Collections.Concurrent;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Authentication;
+using System.Net.Http.Headers;
 
 namespace SimpleHttpClient
 {
@@ -21,10 +22,11 @@ namespace SimpleHttpClient
         private readonly List<CachedConnection> _idleConnections;
         private Queue<TaskCompletionSourceWithCancellation<HttpConnection>> _waiters;
 
-        private readonly HttpConnectionKind _kind;
+        internal readonly HttpConnectionKind _kind;
         private readonly string _sslHost;
         private readonly string _host;
         private readonly int _port;
+        private readonly Uri _proxyUri;
         private readonly HttpConnectionPoolManager _poolManager;
 
         private bool _disposed;
@@ -34,12 +36,13 @@ namespace SimpleHttpClient
 
         private object SyncObj => _idleConnections;
 
-        public HttpConnectionPool(HttpConnectionKind kind, string host, string sslHost, int port, HttpConnectionPoolManager poolManager)
+        public HttpConnectionPool(HttpConnectionKind kind, string host, string sslHost, int port, Uri proxyUri, HttpConnectionPoolManager poolManager)
         {
             _kind = kind;
             _host = host;
             _sslHost = sslHost;
             _port = port;
+            _proxyUri = proxyUri;
             _poolManager = poolManager;
             _idleConnections = new List<CachedConnection>();
         }
@@ -49,7 +52,6 @@ namespace SimpleHttpClient
             while (true)
             {
                 var (connection, isNewConnection, failureResponse) = await GetConnectionAsync(_kind, request, cancellationToken);
-                var id = connection.Id;
                 try
                 {
                     return await connection.SendAsync(request, cancellationToken);
@@ -146,29 +148,55 @@ namespace SimpleHttpClient
 
         private async ValueTask<(Socket, Stream, HttpResponseMessage)> ConnectAsync(HttpConnectionKind kind, HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            var (sokect, stream, failureResponse) = await ConnectAsync(request, cancellationToken);
+            Stream stream = null;
+            switch (_kind)
+            {
+                case HttpConnectionKind.Http:
+                case HttpConnectionKind.Https:
+                case HttpConnectionKind.ProxyConnect:
+                    stream = await ConnectAsync(request, cancellationToken).ConfigureAwait(false);
+                    break;
+                case HttpConnectionKind.ProxyTunnel:
+                case HttpConnectionKind.SslProxyTunnel:
+                    HttpResponseMessage response;
+                    (stream, response) = await EstablishProxyTunnel(request.Headers.Any() ? request.Headers : null, cancellationToken).ConfigureAwait(false);
+                    if (response != null)
+                    {
+                        // Return non-success response from proxy.
+                        response.RequestMessage = request;
+                        return (null, null, response);
+                    }
+                    break;
+            }
+
+            Socket socket = (stream as ExposedSocketNetworkStream)?.Socket;
+
             if (kind == HttpConnectionKind.Https || kind == HttpConnectionKind.SslProxyTunnel)
             {
                 var sslOptions = new SslClientAuthenticationOptions();
                 sslOptions.TargetHost = _poolManager.settings.EndPointProvider.GetHost(_sslHost);
-                sslOptions.EnabledSslProtocols = SslProtocols.Tls;
+                sslOptions.EnabledSslProtocols = SslProtocols.Tls11;
                 if (_poolManager.settings.RemoteCertificateValidationCallback != null)
                 {
                     sslOptions.RemoteCertificateValidationCallback = _poolManager.settings.RemoteCertificateValidationCallback;
                 }
                 else
                 {
-                    sslOptions.RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => { return true; };
+                    sslOptions.RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) =>
+                    {
+
+                        return true;
+                    };
                 }
                 sslOptions.ClientCertificates = _poolManager.settings.ClientCertificates;
                 SslStream sslStream = await EstablishSslConnectionAsync(sslOptions, request, stream, cancellationToken).ConfigureAwait(false);
                 stream = sslStream;
             }
 
-            return (sokect, stream, failureResponse);
+            return (socket, stream, null);
         }
 
-        private async ValueTask<(Socket, Stream, HttpResponseMessage)> ConnectAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        private async ValueTask<Stream> ConnectAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             //TODO: this object need pooling
             var saea = new SocketAsyncEventArgs();
@@ -208,10 +236,11 @@ namespace SimpleHttpClient
                 }
             }
 
-            var socket = saea.ConnectSocket;
+            Socket socket = saea.ConnectSocket;
             var stream = new NetworkStream(socket);
+            socket.NoDelay = true;
 
-            return (socket, stream, null);
+            return new ExposedSocketNetworkStream(socket, ownsSocket: true);
         }
 
 
@@ -262,6 +291,27 @@ namespace SimpleHttpClient
             }
 
             return sslStream;
+        }
+
+        private async ValueTask<(Stream, HttpResponseMessage)> EstablishProxyTunnel(HttpRequestHeaders headers, CancellationToken cancellationToken)
+        {
+            // Send a CONNECT request to the proxy server to establish a tunnel.
+            HttpRequestMessage tunnelRequest = new HttpRequestMessage(new HttpMethod("CONNECT"), _proxyUri);
+            tunnelRequest.Headers.Host = $"{_host}:{_port}";    // This specifies destination host/port to connect to
+
+            if (headers != null && headers.TryGetValues("User-Agent", out IEnumerable<string> values))
+            {
+                tunnelRequest.Headers.TryAddWithoutValidation("User-Agent", values);
+            }
+
+            HttpResponseMessage tunnelResponse = await _poolManager.SendProxyConnectAsync(tunnelRequest, _proxyUri, cancellationToken).ConfigureAwait(false);
+
+            if (tunnelResponse.StatusCode != HttpStatusCode.OK)
+            {
+                return (null, tunnelResponse);
+            }
+
+            return (await tunnelResponse.Content.ReadAsStreamAsync().ConfigureAwait(false), null);
         }
 
         private HttpConnection ConstructHttpConnection(Socket socket, Stream stream)
@@ -356,5 +406,12 @@ namespace SimpleHttpClient
                 RemoteCertificateValidationCallback = options.RemoteCertificateValidationCallback,
                 TargetHost = options.TargetHost
             };
+    }
+
+    internal sealed class ExposedSocketNetworkStream : NetworkStream
+    {
+        public ExposedSocketNetworkStream(Socket socket, bool ownsSocket) : base(socket, ownsSocket) { }
+
+        public new Socket Socket => base.Socket;
     }
 }

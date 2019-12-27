@@ -17,6 +17,7 @@ namespace SimpleHttpClient
         {
             return _connection.PollRead();
         }
+
         public bool Equals(CachedConnection other) => ReferenceEquals(other._connection, _connection);
         public override bool Equals(object obj) => obj is CachedConnection && Equals((CachedConnection)obj);
         public override int GetHashCode() => _connection?.GetHashCode() ?? 0;
