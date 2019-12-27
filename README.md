@@ -4,6 +4,6 @@ Simplely implementation for DotNetCore HttpClient
 - [x] connect pool
 - [x] proxy tunnel
 - [x] Handle chain
-- [ ] timing romove not usable connect
+- [ ] timing remove not usable connect
 
 
