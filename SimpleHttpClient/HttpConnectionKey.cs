@@ -11,51 +11,32 @@ namespace SimpleHttpClient
         public readonly string Host;
         public readonly int Port;
         public readonly string SslHostName;
+        public readonly Uri ProxyUri;
 
-        public HttpConnectionKey(HttpConnectionKind kind, string host, int port, string sslHostName)
+        public HttpConnectionKey(HttpConnectionKind kind, string host, int port, string sslHostName, Uri proxyUri)
         {
             Kind = kind;
             Host = host;
             Port = port;
             SslHostName = sslHostName;
+            ProxyUri = proxyUri;
         }
 
-
         public override int GetHashCode() =>
-     (SslHostName == Host ?
-         HashCode.Combine(Kind, Host, Port) :
-         HashCode.Combine(Kind, Host, Port, SslHostName));
+                (SslHostName == Host ?
+                    HashCode.Combine(Kind, Host, Port, ProxyUri) :
+                    HashCode.Combine(Kind, Host, Port, SslHostName, ProxyUri));
 
         public override bool Equals(object obj) =>
             obj != null &&
             obj is HttpConnectionKey &&
             Equals((HttpConnectionKey)obj);
 
-        public bool Equals(HttpConnectionKey other)
-        {
-            return other.Kind == Kind
-                 &&
-                 other.Host == Host
-                 &&
-                 other.Port == Port
-                 &&
-                 other.SslHostName == SslHostName;
-        }
-      
-        public static implicit operator HttpConnectionKey(HttpRequestMessage httpRequest)
-        {
-            HttpConnectionKind kind;
-            if (httpRequest.RequestUri.Scheme.ToLower().Equals("https"))
-            {
-                kind = HttpConnectionKind.Https;
-            }
-            else
-            {
-                kind = HttpConnectionKind.Http;
-            }
-
-            return new HttpConnectionKey(kind, httpRequest.RequestUri.IdnHost, httpRequest.RequestUri.Port, httpRequest.RequestUri.IdnHost);
-        }
-        
+        public bool Equals(HttpConnectionKey other) =>
+            Kind == other.Kind &&
+            Host == other.Host &&
+            Port == other.Port &&
+            ProxyUri == other.ProxyUri &&
+            SslHostName == other.SslHostName;
     }
 }

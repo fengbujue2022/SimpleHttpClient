@@ -22,9 +22,11 @@ namespace SimpleHttpClient
             {
                 if (!HttpEnvironmentProxy.TryCreateWindows(out IWebProxy proxy))
                 {
-                    //HttpWindowsProxy.TryCreate(out proxy);
+                    if (HttpWindowsProxy.TryCreate(out proxy))
+                    {
+                        return proxy;
+                    }
                 }
-                return proxy ?? new HttpNoProxy();
             }
             return new HttpNoProxy();
         }

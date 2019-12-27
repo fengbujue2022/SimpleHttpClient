@@ -1,4 +1,5 @@
-﻿using System;
+﻿using SimpleHttpClient.Common;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Security;
@@ -13,5 +14,6 @@ namespace SimpleHttpClient
         public DecompressionMethods AutomaticDecompression { get; set; } = DecompressionMethods.None;
         public X509CertificateCollection ClientCertificates { get; set; }
         public RemoteCertificateValidationCallback RemoteCertificateValidationCallback { get; set; }
+        public bool UseProxy { get; set; } = HttpHandlerDefaults.DefaultUseProxy;
     }
 }

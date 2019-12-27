@@ -27,8 +27,6 @@ namespace SimpleHttpClient
         internal readonly HttpConnectionPool _pool;
         private readonly WeakReference<HttpConnection> _weakThisRef;
 
-        public readonly Guid Id = Guid.NewGuid();
-
         private bool _connectionClose;
         private ValueTask<int>? _readAheadTask;
         private int _readAheadTaskLock = 0; // 0 == free, 1 == held
@@ -91,11 +89,21 @@ namespace SimpleHttpClient
                 //blank space
                 await WriteByteAsync((byte)' ').ConfigureAwait(false);
                 //host and querystring
-                await WriteStringAsync(request.RequestUri.AbsoluteUri).ConfigureAwait(false);
+                if (_pool._kind == HttpConnectionKind.ProxyConnect)
+                {
+                    await WriteStringAsync(request.Headers.Host).ConfigureAwait(false);
+                }
+                else
+                {
+                    await WriteStringAsync(request.RequestUri.AbsoluteUri).ConfigureAwait(false);
+                }
                 //protocol
                 await WriteBytesAsync(s_spaceHttp11NewlineAsciiBytes).ConfigureAwait(false);
                 //header
-                await WriteStringAsync($"Host: {request.RequestUri.IdnHost}\r\n").ConfigureAwait(false);
+                if (request.Headers.Host == null)
+                {
+                    await WriteStringAsync($"Host: {request.RequestUri.IdnHost}\r\n").ConfigureAwait(false);
+                }
                 await WriteHeaderAsync(request.Headers);
 
                 if (request.Content == null)
@@ -114,6 +122,7 @@ namespace SimpleHttpClient
                     await WriteStringAsync(body).ConfigureAwait(false);
                 }
 
+                var d = Encoding.UTF8.GetString(_writeBuffer);
                 await FlushAsync().ConfigureAwait(false);
 
                 var t = ConsumeReadAheadTask();
@@ -162,7 +171,11 @@ namespace SimpleHttpClient
                     CompleteResponse();
                 }
 
-                if (response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength > 0)
+                if (request.Method.Method == "CONNECT")
+                {
+                    responseStream = new RawConnectionStream(this);
+                }
+                else if (response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength > 0)
                 {
                     responseStream = new ContentLengthReadStream(this, (ulong)response.Content.Headers.ContentLength.Value);
                 }
@@ -393,7 +406,7 @@ namespace SimpleHttpClient
             }
         }
 
-        private ValueTask FlushAsync()
+        internal ValueTask FlushAsync()
         {
             if (_writeOffset > 0)
             {
@@ -616,6 +629,84 @@ namespace SimpleHttpClient
             return count;
         }
 
+
+        internal int ReadBuffered(Span<byte> destination)
+        {
+            // This is called when reading the response body.
+            int remaining = _readLength - _readOffset;
+            if (remaining > 0)
+            {
+                // We have data in the read buffer.  Return it to the caller.
+                if (destination.Length <= remaining)
+                {
+                    ReadFromBuffer(destination);
+                    return destination.Length;
+                }
+                else
+                {
+                    ReadFromBuffer(destination.Slice(0, remaining));
+                    return remaining;
+                }
+            }
+
+            // No data in read buffer. 
+            _readOffset = _readLength = 0;
+
+            // Do a buffered read directly against the underlying stream.
+            int bytesRead = _stream.Read(_readBuffer, 0, _readBuffer.Length);
+            _readLength = bytesRead;
+
+            // Hand back as much data as we can fit.
+            int bytesToCopy = Math.Min(bytesRead, destination.Length);
+            _readBuffer.AsSpan(0, bytesToCopy).CopyTo(destination);
+            _readOffset = bytesToCopy;
+            return bytesToCopy;
+        }
+
+        internal ValueTask<int> ReadBufferedAsync(Memory<byte> destination)
+        {
+            // If the caller provided buffer, and thus the amount of data desired to be read,
+            // is larger than the internal buffer, there's no point going through the internal
+            // buffer, so just do an unbuffered read.
+            return destination.Length >= _readBuffer.Length ?
+                ReadAsync(destination) :
+                ReadBufferedAsyncCore(destination);
+        }
+
+        internal async ValueTask<int> ReadBufferedAsyncCore(Memory<byte> destination)
+        {
+            // This is called when reading the response body.
+
+            int remaining = _readLength - _readOffset;
+            if (remaining > 0)
+            {
+                // We have data in the read buffer.  Return it to the caller.
+                if (destination.Length <= remaining)
+                {
+                    ReadFromBuffer(destination.Span);
+                    return destination.Length;
+                }
+                else
+                {
+                    ReadFromBuffer(destination.Span.Slice(0, remaining));
+                    return remaining;
+                }
+            }
+
+            // No data in read buffer. 
+            _readOffset = _readLength = 0;
+
+            // Do a buffered read directly against the underlying stream.
+            int bytesRead = await _stream.ReadAsync(_readBuffer.AsMemory()).ConfigureAwait(false);
+            _readLength = bytesRead;
+
+            // Hand back as much data as we can fit.
+            int bytesToCopy = Math.Min(bytesRead, destination.Length);
+            _readBuffer.AsSpan(0, bytesToCopy).CopyTo(destination.Span);
+            _readOffset = bytesToCopy;
+            return bytesToCopy;
+        }
+
         internal async Task CopyFromBufferAsync(Stream destination, int count, CancellationToken cancellationToken)
         {
             await destination.WriteAsync(new ReadOnlyMemory<byte>(_readBuffer, _readOffset, count), cancellationToken).ConfigureAwait(false);
@@ -684,6 +775,101 @@ namespace SimpleHttpClient
                 }
             }
         }
+
+        internal Task CopyToUntilEofAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
+        {
+
+            int remaining = _readLength - _readOffset;
+            return remaining > 0 ?
+                CopyToUntilEofWithExistingBufferedDataAsync(destination, bufferSize, cancellationToken) :
+                _stream.CopyToAsync(destination, bufferSize, cancellationToken);
+        }
+
+        internal async Task CopyToUntilEofWithExistingBufferedDataAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
+        {
+            int remaining = _readLength - _readOffset;
+
+            await CopyFromBufferAsync(destination, remaining, cancellationToken).ConfigureAwait(false);
+            _readLength = _readOffset = 0;
+
+            await _stream.CopyToAsync(destination, bufferSize).ConfigureAwait(false);
+        }
+
+        internal void WriteWithoutBuffering(ReadOnlySpan<byte> source)
+        {
+            if (_writeOffset != 0)
+            {
+                int remaining = _writeBuffer.Length - _writeOffset;
+                if (source.Length <= remaining)
+                {
+                    // There's something already in the write buffer, but the content
+                    // we're writing can also fit after it in the write buffer.  Copy
+                    // the content to the write buffer and then flush it, so that we
+                    // can do a single send rather than two.
+                    WriteToBuffer(source);
+                    Flush();
+                    return;
+                }
+
+                // There's data in the write buffer and the data we're writing doesn't fit after it.
+                // Do two writes, one to flush the buffer and then another to write the supplied content.
+                Flush();
+            }
+
+            WriteToStream(source);
+        }
+
+
+        internal ValueTask WriteWithoutBufferingAsync(ReadOnlyMemory<byte> source)
+        {
+            if (_writeOffset == 0)
+            {
+                return WriteToStreamAsync(source);
+            }
+
+            int remaining = _writeBuffer.Length - _writeOffset;
+            if (source.Length <= remaining)
+            {
+
+                WriteToBuffer(source);
+                return FlushAsync();
+            }
+
+            return new ValueTask(FlushThenWriteWithoutBufferingAsync(source));
+        }
+
+        private async Task FlushThenWriteWithoutBufferingAsync(ReadOnlyMemory<byte> source)
+        {
+            await FlushAsync().ConfigureAwait(false);
+            await WriteToStreamAsync(source).ConfigureAwait(false);
+        }
+
+        private void WriteToBuffer(ReadOnlySpan<byte> source)
+        {
+            source.CopyTo(new Span<byte>(_writeBuffer, _writeOffset, source.Length));
+            _writeOffset += source.Length;
+        }
+
+        private void WriteToBuffer(ReadOnlyMemory<byte> source)
+        {
+            source.Span.CopyTo(new Span<byte>(_writeBuffer, _writeOffset, source.Length));
+            _writeOffset += source.Length;
+        }
+
+        internal void Flush()
+        {
+            if (_writeOffset > 0)
+            {
+                WriteToStream(new ReadOnlySpan<byte>(_writeBuffer, 0, _writeOffset));
+                _writeOffset = 0;
+            }
+        }
+
+        private void WriteToStream(ReadOnlySpan<byte> source)
+        {
+            _stream.Write(source);
+        }
+
 
         private static bool EqualsOrdinal(string left, Span<byte> right)
         {

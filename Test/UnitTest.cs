@@ -17,8 +17,10 @@ namespace Test
         [Test]
         public async Task PipelineHandlerTest()
         {
-            var simpleClient = SimpleHttpClient.HttpClientFactory.Create(new HeaderValueHandler());
-            var response = await simpleClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, "https://www.baidu.com"));
+            var simpleClient = SimpleHttpClient.HttpClientFactory.Create((handle)=> {
+
+            },new HeaderValueHandler());
+            var response = await simpleClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, "https://www.google.com"));
             Assert.IsTrue(response.RequestMessage.Headers.Contains("User-Agent"));
             Assert.AreEqual(response.RequestMessage.Headers.UserAgent.Count, 1);
             Assert.AreEqual(response.RequestMessage.Headers.UserAgent.First().ToString(), "PixivIOSApp/5.8.0");

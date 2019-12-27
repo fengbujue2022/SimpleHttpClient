@@ -12,14 +12,23 @@ namespace SimpleHttpClient
 {
     public class HttpClient : HttpMessageInvoker
     {
+        private static IWebProxy s_defaultProxy;
         private static readonly TimeSpan s_infiniteTimeout = System.Threading.Timeout.InfiniteTimeSpan;
         private const HttpCompletionOption defaultCompletionOption = HttpCompletionOption.ResponseContentRead;
 
         private CancellationTokenSource _pendingRequestsCts;
         private volatile bool _disposed;
+        private int _maxResponseContentBufferSize;
 
         public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(100);
-        private int _maxResponseContentBufferSize;
+        public static IWebProxy DefaultProxy
+        {
+            get => LazyInitializer.EnsureInitialized(ref s_defaultProxy, () => SystemProxyInfo.Proxy);
+            set
+            {
+                s_defaultProxy = value ?? throw new ArgumentNullException(nameof(value));
+            }
+        }
 
 
         public HttpClient()
