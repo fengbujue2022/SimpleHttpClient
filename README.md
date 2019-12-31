@@ -1,5 +1,5 @@
 # SimpleHttpClient
-Simplely implementation for DotNetCore HttpClient
+Simple implementation for HttpClient
 ### Features
 - [x] connection pool
 - [x] proxy tunnel
